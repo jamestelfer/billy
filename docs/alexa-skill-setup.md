@@ -8,9 +8,15 @@ The endpoint has to be reachable before the skill can point at it: do
 answers over the public Funnel URL.
 
 1. Create a **Custom** skill, **self-hosted** (not Alexa-hosted, not Lambda).
-2. Build an interaction model — an invocation name, one custom intent with a
-   couple of sample utterances, plus the required built-ins. `interaction-model.json`
-   in this directory is a minimal starting point. Build the model.
+2. Build the interaction model. Open **Build → Interaction Model → JSON
+   Editor**, paste [`interaction-model.json`](interaction-model.json) from this
+   directory over what is there, save, then **Build Model**. It is the minimum
+   the corpus needs: the `audiobookshelf` invocation name, one slot-free custom
+   intent (`CaptureIntent`) with a few sample utterances, and the built-ins
+   (`AMAZON.CancelIntent`, `AMAZON.HelpIntent`, `AMAZON.StopIntent`,
+   `AMAZON.NavigateHomeIntent`, `AMAZON.FallbackIntent`). Saying just the
+   invocation name gives a `LaunchRequest`; "alexa, ask audiobookshelf to
+   capture a request" gives an `IntentRequest`.
 3. **Build → Endpoint**: set **Service Endpoint Type** to **HTTPS**.
 4. Set the Default Region endpoint to `https://<host>.<tailnet>.ts.net/alexa`.
 5. For the certificate option choose **"My development endpoint has a
@@ -36,6 +42,11 @@ Invoke from the console's **Test** tab first — the iteration loop is much
 faster than speaking to a device — then from the physical Echo. Aim for at
 least a `LaunchRequest` and one `IntentRequest`, which are two distinct
 envelope shapes.
+
+Say the invocation name on its own for a `LaunchRequest`, and "ask
+audiobookshelf to capture a request" for an `IntentRequest`. An utterance the
+model does not recognise lands on `AMAZON.FallbackIntent`, which is a third
+shape for free.
 
 Each invocation leaves a `<stem>.body` / `<stem>.json` pair in the capture
 directory. Confirm a capture is intact by checking that the body parses and

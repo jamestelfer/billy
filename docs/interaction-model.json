@@ -2,18 +2,27 @@
   "interactionModel": {
     "languageModel": {
       "invocationName": "audiobookshelf",
+      "modelConfiguration": {
+        "fallbackIntentSensitivity": {
+          "level": "LOW"
+        }
+      },
       "intents": [
         { "name": "AMAZON.CancelIntent", "samples": [] },
         { "name": "AMAZON.HelpIntent", "samples": [] },
         { "name": "AMAZON.StopIntent", "samples": [] },
         { "name": "AMAZON.NavigateHomeIntent", "samples": [] },
+        { "name": "AMAZON.FallbackIntent", "samples": [] },
         {
           "name": "CaptureIntent",
           "slots": [],
           "samples": [
             "capture this",
             "capture a request",
-            "test the endpoint"
+            "capture one",
+            "test the endpoint",
+            "to capture a request",
+            "to test the endpoint"
           ]
         }
       ],
