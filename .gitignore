@@ -1,0 +1,9 @@
+dist/
+result
+.claude/settings.local.json
+
+# Captured Alexa request bodies contain live credentials (apiAccessToken,
+# userId, deviceId). Never commit them.
+capture/
+*.body
+.envrc.private
