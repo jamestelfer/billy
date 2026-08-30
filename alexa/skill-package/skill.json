@@ -1,0 +1,44 @@
+{
+  "manifest": {
+    "manifestVersion": "1.0",
+    "publishingInformation": {
+      "locales": {
+        "en-US": {
+          "name": "billy",
+          "summary": "Development endpoint that captures raw Alexa requests.",
+          "description": "A development-only skill for jamestelfer/billy. It points at a self-hosted endpoint reached over Tailscale Funnel, which records the raw bytes of every request Alexa sends so that signature verification can be built against a real corpus. It plays nothing and is never submitted for certification.",
+          "examplePhrases": [
+            "Alexa, open audiobookshelf",
+            "Alexa, ask audiobookshelf to capture a request",
+            "Alexa, ask audiobookshelf to test the endpoint"
+          ],
+          "keywords": [
+            "audiobookshelf",
+            "development"
+          ]
+        }
+      },
+      "isAvailableWorldwide": true,
+      "testingInstructions": "Development only. The endpoint does not verify request signatures yet, so this skill must not be submitted for certification.",
+      "category": "STREAMING_SERVICE"
+    },
+    "apis": {
+      "custom": {
+        "endpoint": {
+          "uri": "@BILLY_SKILL_ENDPOINT@",
+          "sslCertificateType": "Trusted"
+        }
+      }
+    },
+    "privacyAndCompliance": {
+      "locales": {
+        "en-US": {}
+      },
+      "allowsPurchases": false,
+      "usesPersonalInfo": false,
+      "isChildDirected": false,
+      "isExportCompliant": true,
+      "containsAds": false
+    }
+  }
+}

@@ -19,6 +19,10 @@ just lint      # golangci-lint run ./...
 just xbuild    # goreleaser snapshot build across the full release matrix
 ```
 
+Alexa skill recipes (`skill-render`, `skill-deploy`, `skill-talk`,
+`skill-corpus`) need `ask-cli` and `jq` on PATH; they are not part of `verify`
+and never run in CI.
+
 Tool versions (Go, golangci-lint, goreleaser, just) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
 
 ## Cross-platform rules
@@ -41,9 +45,17 @@ server.go      http.Server construction, serve loop and drain, decoupled from ts
 handlers.go    route table; /healthz
 alexa.go       /alexa: bounded read, capture, minimal Alexa response envelope
 capture.go     byte-exact request capture to disk (body + JSON metadata sidecar)
-docs/          Tailscale and Alexa console setup, plus a minimal interaction model
+alexa/         ASK CLI project: skill manifest, interaction model, dialog corpus
+docs/          Tailscale and Alexa skill setup
 setup.md       the implementation plan this repo is being built against
 ```
+
+The Alexa skill is managed from files, not the developer console: `just
+skill-deploy` renders `alexa/skill-package` and uploads it, `just skill-corpus`
+replays scripted utterances to fill the capture directory. See
+`docs/alexa-skill-setup.md`. The endpoint URL is never committed — the manifest
+holds a placeholder that is substituted from `BILLY_SKILL_ENDPOINT` at render
+time.
 
 ## Commits and PR titles
 

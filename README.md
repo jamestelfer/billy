@@ -48,4 +48,16 @@ answers `200`; `/alexa` is the skill endpoint.
 The tailnet needs a little configuration before any of that works — see
 `docs/tailscale-setup.md`, then `docs/alexa-skill-setup.md`.
 
+## Skill
+
+The Alexa skill lives in `alexa/` as an ASK CLI project, so the manifest and
+interaction model are reviewable files rather than console state:
+
+```
+export BILLY_SKILL_ENDPOINT=https://<host>.<tailnet>.ts.net/alexa
+just skill-deploy    # create or update the skill
+just skill-corpus    # replay scripted utterances to fill the capture directory
+just skill-talk      # interactive dialog with the deployed skill
+```
+
 See `AGENTS.md` for conventions and `setup.md` for the implementation plan.

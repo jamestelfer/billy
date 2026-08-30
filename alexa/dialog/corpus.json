@@ -1,0 +1,9 @@
+{
+  "type": "text",
+  "userInput": [
+    "open audiobookshelf",
+    "ask audiobookshelf to capture a request",
+    "ask audiobookshelf to test the endpoint",
+    "ask audiobookshelf to defenestrate the quarterly badger"
+  ]
+}
