@@ -6,3 +6,4 @@ result
 # userId, deviceId). Never commit them.
 capture/
 *.body
+.envrc.private
