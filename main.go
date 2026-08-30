@@ -90,6 +90,11 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 		}
 	}()
 
+	capture, err := newCaptureStore(cfg.CaptureDir)
+	if err != nil {
+		return err
+	}
+
 	// First-run Funnel setup provisions a Let's Encrypt certificate for the
 	// node, which can take several seconds. ListenFunnel blocks for it rather
 	// than failing, so there is no startup deadline to tune here.
@@ -103,5 +108,5 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 
 	log.Info("serving", slog.String("url", "https://"+cfg.Hostname+".<tailnet>.ts.net"))
 
-	return serve(ctx, ln, newRouter(log), log)
+	return serve(ctx, ln, newRouter(log, capture), log)
 }

@@ -34,11 +34,14 @@ Linux, macOS and Windows on both `amd64` and `arm64` are **firm, equally weighte
 ## Project layout
 
 ```
-main.go        entry point: flag parsing, config, server wiring, graceful shutdown
+main.go        entry point: flags, config, tsnet Funnel listener, graceful shutdown
 version.go     build metadata + buildVersion() fallback via debug.ReadBuildInfo
 config.go      configuration resolved from the environment
-handlers.go    HTTP routes: /healthz and /alexa
+server.go      http.Server construction, serve loop and drain, decoupled from tsnet
+handlers.go    route table; /healthz
+alexa.go       /alexa: bounded read, capture, minimal Alexa response envelope
 capture.go     byte-exact request capture to disk (body + JSON metadata sidecar)
+docs/          Alexa developer console setup and a minimal interaction model
 setup.md       the implementation plan this repo is being built against
 ```
 

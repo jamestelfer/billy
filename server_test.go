@@ -13,7 +13,7 @@ import (
 // Structural: never ship a bare http.Server. A public listener with no header
 // or idle timeout is a slowloris target.
 func TestNewHTTPServerSetsTimeouts(t *testing.T) {
-	srv := newHTTPServer(newRouter(testLogger()))
+	srv := newHTTPServer(newRouter(testLogger(), mustCaptureStore(t)))
 
 	if srv.ReadHeaderTimeout == 0 {
 		t.Error("ReadHeaderTimeout is unset")
@@ -38,7 +38,7 @@ func TestServeAnswersHealthzAndShutsDownOnContextCancel(t *testing.T) {
 	}
 
 	served := make(chan error, 1)
-	go func() { served <- serve(ctx, ln, newRouter(testLogger()), testLogger()) }()
+	go func() { served <- serve(ctx, ln, newRouter(testLogger(), mustCaptureStore(t)), testLogger()) }()
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+ln.Addr().String()+"/healthz", nil)
 	if err != nil {

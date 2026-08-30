@@ -15,7 +15,7 @@ func TestHealthzReturns200WithNonSensitiveBody(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 
-	newRouter(testLogger()).ServeHTTP(rec, req)
+	newRouter(testLogger(), mustCaptureStore(t)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /healthz status = %d, want %d", rec.Code, http.StatusOK)
@@ -36,7 +36,7 @@ func TestUnknownPathReturns404(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/not-a-route", nil)
 
-	newRouter(testLogger()).ServeHTTP(rec, req)
+	newRouter(testLogger(), mustCaptureStore(t)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET /not-a-route status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -45,4 +45,13 @@ func TestUnknownPathReturns404(t *testing.T) {
 
 func testLogger() *slog.Logger {
 	return slog.New(slog.DiscardHandler)
+}
+
+func mustCaptureStore(t *testing.T) *captureStore {
+	t.Helper()
+	store, err := newCaptureStore(t.TempDir())
+	if err != nil {
+		t.Fatalf("newCaptureStore() error = %v", err)
+	}
+	return store
 }
