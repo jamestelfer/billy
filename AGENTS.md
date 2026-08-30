@@ -41,7 +41,7 @@ server.go      http.Server construction, serve loop and drain, decoupled from ts
 handlers.go    route table; /healthz
 alexa.go       /alexa: bounded read, capture, minimal Alexa response envelope
 capture.go     byte-exact request capture to disk (body + JSON metadata sidecar)
-docs/          Alexa developer console setup and a minimal interaction model
+docs/          Tailscale and Alexa console setup, plus a minimal interaction model
 setup.md       the implementation plan this repo is being built against
 ```
 

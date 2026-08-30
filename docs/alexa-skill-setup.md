@@ -3,6 +3,10 @@
 The steps for pointing a custom skill at this service. Everything here is
 console configuration — none of it is code.
 
+The endpoint has to be reachable before the skill can point at it: do
+[`tailscale-setup.md`](tailscale-setup.md) first, and confirm `/healthz`
+answers over the public Funnel URL.
+
 1. Create a **Custom** skill, **self-hosted** (not Alexa-hosted, not Lambda).
 2. Build an interaction model — an invocation name, one custom intent with a
    couple of sample utterances, plus the required built-ins. `interaction-model.json`

@@ -45,4 +45,7 @@ answers `200`; `/alexa` is the skill endpoint.
 > directory is gitignored and created owner-only; treat its contents as
 > credentials.
 
+The tailnet needs a little configuration before any of that works — see
+`docs/tailscale-setup.md`, then `docs/alexa-skill-setup.md`.
+
 See `AGENTS.md` for conventions and `setup.md` for the implementation plan.
