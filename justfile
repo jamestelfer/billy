@@ -24,6 +24,56 @@ lint:
 xbuild *args:
     goreleaser build --snapshot --clean {{args}}
 
+# --- Local run -------------------------------------------------------------
+# A development run, not a deployment: captures go to dist/capture so they can
+# be inspected and thrown away with the rest of dist/, and can never be
+# committed. The tsnet state directory keeps its default: it holds the node
+# identity, and with it the Funnel URL pinned in the skill manifest.
+
+pidfile     := "dist/billy.the.pid"
+run_log     := "dist/billy.run.log"
+capture_dir := "dist/capture"
+
+# Readiness is checked over the public Funnel URL: the tsnet listener has no
+# loopback address to poll.
+health_url := replace(env("BILLY_SKILL_ENDPOINT", ""), "/alexa", "/healthz")
+
+# Create the local capture directory
+capture-dir:
+    mkdir -p {{capture_dir}}
+
+# Start billy in the background (captures to dist/capture)
+start *args: build capture-dir
+    #!/usr/bin/env bash
+    set -euo pipefail
+    : "${BILLY_SKILL_ENDPOINT:?set it to the Funnel endpoint, e.g. https://billy.<tailnet>.ts.net/alexa}"
+    if [[ -f {{pidfile}} ]] && kill -0 "$(cat {{pidfile}})" 2>/dev/null; then
+        echo "already running (pid $(cat {{pidfile}})); use 'just stop'" >&2
+        exit 1
+    fi
+    # setsid detaches from this shell's process group so the recipe exiting
+    # does not take the server with it.
+    setsid env BILLY_CAPTURE_DIR="$PWD/{{capture_dir}}" ./dist/billy {{args}} \
+        >{{run_log}} 2>&1 &
+    echo $! > {{pidfile}}
+    status=0
+    # The first run provisions a certificate, so wait in minutes, not seconds.
+    wait4x http '{{health_url}}' --expect-status-code 200 --timeout 2m --interval 2s || status=$?
+    echo "{{run_log}}:" >&2
+    tail -n 5 {{run_log}} >&2
+    exit $status
+
+# Stop a backgrounded billy and wait for it to drain
+stop:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    [[ -f {{pidfile}} ]] || { echo "not running under 'just start'"; exit 0; }
+    pid=$(cat {{pidfile}})
+    kill "$pid" 2>/dev/null || true
+    # It holds the tsnet state lock until it is gone, so returning early makes
+    # the next 'just start' fail. kill -0 exits 1 once the pid is reaped.
+    wait4x exec "kill -0 $pid" --exit-code 1 --timeout 30s -- rm -f {{pidfile}}
+
 # --- Alexa skill (ASK CLI) -------------------------------------------------
 # The skill lives in alexa/ as an ASK CLI project, and ask-cli expects to run
 # from that directory: ask-resources.json, .ask/ and the skill package are all

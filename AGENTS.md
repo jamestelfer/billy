@@ -13,6 +13,8 @@ This project uses **Go 1.27**, which was released after the AI knowledge cutoff.
 ```
 just verify    # fmt + build + lint + test (run before committing)
 just build     # produces dist/billy
+just start     # run billy in the background, capturing to dist/capture
+just stop      # stop it and wait for the tsnet state lock to be released
 just test      # go test ./...
 just fmt       # gofmt -w .
 just lint      # golangci-lint run ./...
@@ -23,7 +25,10 @@ Alexa skill recipes (`skill-render`, `skill-deploy`, `skill-talk`,
 `skill-corpus`) need `ask-cli` and `jq` on PATH; they are not part of `verify`
 and never run in CI.
 
-Tool versions (Go, golangci-lint, goreleaser, just) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
+`just start` needs `BILLY_SKILL_ENDPOINT`: readiness is checked over the public
+Funnel URL, as the tsnet listener has no loopback address to poll.
+
+Tool versions (Go, golangci-lint, goreleaser, just, wait4x) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
 
 ## Cross-platform rules
 

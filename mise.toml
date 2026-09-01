@@ -5,3 +5,5 @@ goreleaser    = "2.16.0"
 just          = "1.49.0"
 node          = "24"
 "npm:ask-cli" = "2.30.7"
+# Not in the mise registry; the release assets are plain tarballs, so ubi.
+"ubi:wait4x/wait4x" = "3.7.1"
