@@ -21,6 +21,17 @@ const (
 	// certChainURLHeader carries the URL of the PEM certificate chain.
 	// ServletConstants.SIGNATURE_CERTIFICATE_CHAIN_URL_REQUEST_HEADER.
 	certChainURLHeader = "SignatureCertChainUrl"
+
+	// validCertScheme, validCertHost and validCertPathPrefix bound where a
+	// certificate chain may be fetched from. The host comparison case-folds;
+	// the path prefix is case-sensitive. Both SDKs agree on all three.
+	validCertScheme     = "https"
+	validCertHost       = "s3.amazonaws.com"
+	validCertPathPrefix = "/echo.api/"
+
+	// validCertPort is the only explicit port accepted on a chain URL. An
+	// absent port is also accepted and means the same thing.
+	validCertPort = "443"
 )
 
 const (

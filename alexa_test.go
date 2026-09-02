@@ -1,7 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -395,18 +398,126 @@ func TestVerificationIsNotAppliedToHealthz(t *testing.T) {
 	}
 }
 
+// R18/R19: the two rejections where this service is stricter than both
+// reference SDKs must be logged under their own message, never folded into the
+// generic invalid-URL line. If Amazon ever changes what it emits, these are
+// the only two places the verifier can break in a way the SDKs would not, so
+// they have to be findable in one search.
+func TestAlexaLogsHostileCertChainURLsDistinctly(t *testing.T) {
+	tests := []struct {
+		name   string
+		url    string
+		wantIn string
+	}{
+		{
+			name:   "wrong host",
+			url:    "https://very.bad/echo.api/cert",
+			wantIn: "invalid certificate chain URL",
+		},
+		{
+			name:   "userinfo",
+			url:    "https://user:pw@s3.amazonaws.com/echo.api/cert",
+			wantIn: "certificate chain URL contains userinfo",
+		},
+		{
+			name:   "percent encoded traversal",
+			url:    "https://s3.amazonaws.com/echo.api/%2e%2e/cert",
+			wantIn: "certificate chain URL escapes the permitted path",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			store, dir := newTestCapture(t)
+			var logged bytes.Buffer
+			router := newTestRouterWithLog(t, store, &logged)
+
+			headers := signatureHeaders()
+			headers["SignatureCertChainUrl"] = tc.url
+
+			rec := postAlexa(t, router, sampleLaunchRequest, headers)
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			if !strings.Contains(logged.String(), tc.wantIn) {
+				t.Errorf("log does not mention %q; log was:\n%s", tc.wantIn, logged.String())
+			}
+			if !strings.Contains(logged.String(), "cert_chain_url") {
+				t.Errorf("log does not carry the offending URL; log was:\n%s", logged.String())
+			}
+			assertCaptureDirEmpty(t, dir)
+		})
+	}
+}
+
+// Regression watchpoint from Phase 2: the header-missing path must keep its own
+// log line rather than being swallowed by the new URL errors.
+func TestAlexaStillLogsAMissingHeaderDistinctlyFromABadURL(t *testing.T) {
+	store, _ := newTestCapture(t)
+
+	var missingLog bytes.Buffer
+	headers := signatureHeaders()
+	delete(headers, "SignatureCertChainUrl")
+	postAlexa(t, newTestRouterWithLog(t, store, &missingLog), sampleLaunchRequest, headers)
+
+	var badURLLog bytes.Buffer
+	badHeaders := signatureHeaders()
+	badHeaders["SignatureCertChainUrl"] = "https://very.bad/echo.api/cert"
+	postAlexa(t, newTestRouterWithLog(t, store, &badURLLog), sampleLaunchRequest, badHeaders)
+
+	if !strings.Contains(missingLog.String(), "missing verification header") {
+		t.Errorf("a missing header was not logged as one; log was:\n%s", missingLog.String())
+	}
+	if strings.Contains(missingLog.String(), "certificate chain URL") {
+		t.Errorf("a missing header was logged as a URL failure; log was:\n%s", missingLog.String())
+	}
+	if !strings.Contains(badURLLog.String(), "invalid certificate chain URL") {
+		t.Errorf("a bad URL was not logged as one; log was:\n%s", badURLLog.String())
+	}
+}
+
+// R14: the cert URL is checked only after the timestamp. A stale request with
+// a hostile URL must be refused on freshness, so an unauthenticated caller
+// cannot use a replayed body to make this process look at a URL of their
+// choosing at all.
+func TestAlexaChecksTheTimestampBeforeTheCertChainURL(t *testing.T) {
+	store, _ := newTestCapture(t)
+	var logged bytes.Buffer
+
+	headers := signatureHeaders()
+	headers["SignatureCertChainUrl"] = "https://very.bad/echo.api/cert"
+	postAlexa(t, newTestRouterWithLog(t, store, &logged),
+		launchRequestAt(testNow.Add(-time.Hour)), headers)
+
+	if !strings.Contains(logged.String(), "timestamp outside tolerance") {
+		t.Errorf("a stale request was not rejected on freshness first; log was:\n%s", logged.String())
+	}
+	if strings.Contains(logged.String(), "certificate chain URL") {
+		t.Errorf("the cert URL was inspected before the timestamp gate closed; log was:\n%s", logged.String())
+	}
+}
+
 // newTestRouter builds the production router with the verifier's clock pinned.
 // The clock is the only seam these tests use: the trusted roots and the HTTP
 // client stay at their production defaults, so nothing here can admit a
 // request that production would refuse.
 func newTestRouter(t *testing.T, store *captureStore) http.Handler {
 	t.Helper()
+	return newTestRouterWithLog(t, store, io.Discard)
+}
+
+// newTestRouterWithLog is newTestRouter with the service log captured, for the
+// tests that assert on which rejection was recorded.
+func newTestRouterWithLog(t *testing.T, store *captureStore, out io.Writer) http.Handler {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	verifier, err := alexaverify.New(
 		alexaverify.WithClock(func() time.Time { return testNow }),
-		alexaverify.WithLogger(testLogger()),
+		alexaverify.WithLogger(log),
 	)
 	if err != nil {
 		t.Fatalf("alexaverify.New() error = %v", err)
 	}
-	return newRouter(testLogger(), store, verifier)
+	return newRouter(log, store, verifier)
 }

@@ -161,7 +161,14 @@ func (v *Verifier) Verify(ctx context.Context, body []byte, hdr http.Header) err
 
 // verifySignature checks the Signature-256 header against the certificate
 // chain published at certChainURL.
-func (v *Verifier) verifySignature(_ context.Context, _ []byte, _, _ string) error {
+func (v *Verifier) verifySignature(_ context.Context, _ []byte, _, certChainURL string) error {
+	// The URL decides where this process makes an outbound HTTPS request, so it
+	// is validated before anything touches the network. A rejected URL must
+	// never open a connection.
+	if _, err := normalizeCertChainURL(certChainURL); err != nil {
+		return err
+	}
+
 	// Not yet implemented. Returning an error here is what keeps the gate
 	// closed: until the chain and signature work lands, no request is admitted
 	// on the strength of a signature nobody checked.
