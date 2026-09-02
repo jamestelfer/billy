@@ -89,9 +89,9 @@ func handleAlexa(log *slog.Logger, store *captureStore, verifier *alexaverify.Ve
 			// A truncated or unreadable body can never verify, and must not be
 			// allowed to verify a prefix of itself. Fail closed here rather
 			// than handing a partial buffer to the verifier.
-			var maxBytes *http.MaxBytesError
+			_, overLimit := errors.AsType[*http.MaxBytesError](readErr)
 			log.Warn("rejecting request: the body could not be read in full",
-				slog.Bool("over_limit", errors.As(readErr, &maxBytes)),
+				slog.Bool("over_limit", overLimit),
 				slog.Int("bytes_read", len(body)),
 				slog.Uint64("rejected_total", rejected.Add(1)),
 				slog.Any("error", readErr))

@@ -2,7 +2,10 @@ module github.com/jamestelfer/billy
 
 go 1.27
 
-require tailscale.com v1.102.3
+require (
+	github.com/urfave/cli/v3 v3.11.0
+	tailscale.com v1.102.3
+)
 
 require (
 	filippo.io/edwards25519 v1.2.0 // indirect

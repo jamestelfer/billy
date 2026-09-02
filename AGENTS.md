@@ -88,10 +88,26 @@ Use Context7 for up-to-date documentation — do not guess at APIs. Query the Co
 | Library / source | Context7 ID | Notes |
 |---|---|---|
 | `tailscale.com/tsnet` | `/tailscale/tailscale` | Embedded tailnet node; `ListenFunnel` on 443 |
+| `github.com/urfave/cli/v3` | `/urfave/cli` | **The CLI framework. All command line argument handling uses urfave/cli v3** — never `flag`, never a hand-rolled parser. Note v3 is `cli.Command`, not v2's `cli.App` |
 | Alexa Skills Kit docs | look up before use | Request/response envelope shapes; web-service hosting requirements |
 | GoReleaser | `/websites/goreleaser` | Release/snapshot builds; ldflags inject `main.version`/`commit`/`date` |
 
 Not on Context7: the Go stdlib (`net/http`, `path/filepath`, `log/slog`, `runtime/debug`) — use upstream docs directly.
+
+### CLI conventions
+
+The binary takes **no positional arguments and almost no flags**: everything an
+operator sets is an environment variable (see `config.go`), because that is the
+one mechanism that behaves identically under systemd, launchd and the Windows
+Service Manager. The CLI layer exists for `--help` and `--version`, not as a
+second configuration system. Resist adding a flag that duplicates a
+`BILLY_*` variable.
+
+`run(args, stdout, stderr) int` stays a pure function of its arguments so it is
+testable without a process boundary. urfave/cli's default `ExitErrHandler`
+writes to a package global and calls `os.Exit`, so it is replaced with a no-op
+and exit-code mapping is done in `run`. Exit codes: `0` success, `1` runtime
+failure, `2` usage error.
 
 ## Release automation
 
