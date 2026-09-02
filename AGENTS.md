@@ -2,7 +2,7 @@
 
 A self-hosted Alexa skill endpoint for [Audiobookshelf](https://www.audiobookshelf.org/), shipped as a single static executable with Tailscale Funnel ingress embedded via `tsnet`.
 
-**Current scope** is deliberately small: reach the box from the public internet over Funnel, and capture the raw bytes of every Alexa request to disk. There is no signature verification, no ABS integration and no AudioPlayer support yet — those are separate, later plans. See `setup.md` for the full plan and its phase boundaries.
+**Current scope**: reach the box from the public internet over Funnel, verify that each request really came from Alexa, and capture the raw bytes of every verified request to disk. Signature verification is **partially landed** — see the note under Key conventions. There is no ABS integration and no AudioPlayer support yet; those are separate, later plans. See `setup.md` for the original plan and the signing plan in the wiki for the verification phases.
 
 ## Go version
 
@@ -43,15 +43,29 @@ Linux, macOS and Windows on both `amd64` and `arm64` are **firm, equally weighte
 ## Project layout
 
 ```
-main.go        entry point: flags, config, tsnet Funnel listener, graceful shutdown
+main.go        entry point: urfave/cli command, config, tsnet Funnel listener, graceful shutdown
 version.go     build metadata + buildVersion() fallback via debug.ReadBuildInfo
 config.go      configuration resolved from the environment
 server.go      http.Server construction, serve loop and drain, decoupled from tsnet
 handlers.go    route table; /healthz
-alexa.go       /alexa: bounded read, capture, minimal Alexa response envelope
+alexa.go       /alexa: bounded read, verification gate, capture, response envelope
 capture.go     byte-exact request capture to disk (body + JSON metadata sidecar)
+
+pkg/alexaverify/   PUBLIC package: Alexa request verification. Its exported
+                   surface is a semver contract — a breaking change to it is a
+                   `!` major bump. `main` consumes it as an ordinary external
+                   consumer, which is the cheapest continuous proof that the
+                   API is usable.
+  doc.go           package docs: no disable switch, no revocation checking
+  verify.go        Verifier, New, Option, Verify, Warm
+  errors.go        exported sentinel errors (every failure wraps exactly one)
+  url.go           cert chain URL normalization + validation
+  timestamp.go     freshness arithmetic
+  constants.go     every magic value, named after its Java counterpart
+
 alexa/         ASK CLI project: skill manifest, interaction model, dialog corpus
 docs/          Tailscale and Alexa skill setup
+NOTICE         attribution for the Apache-2.0 Alexa SDK sources ported from
 setup.md       the implementation plan this repo is being built against
 ```
 
@@ -75,24 +89,42 @@ Use Conventional Commits for all commit messages and PR titles. `pr-title.yml` e
 ## Key conventions
 
 - **Captured bodies are secret material.** Alexa request envelopes carry `session.user.userId`, `context.System.device.deviceId` and `context.System.apiAccessToken` — the last is a live bearer token. Never commit a capture, never paste one into an issue or a chat log, and scrub those fields before any body becomes a test fixture. The capture directory is gitignored.
-- **The body is persisted byte-for-byte.** Never unmarshal-then-remarshal, reformat, or normalise a captured body: the Alexa signature is computed over the raw bytes, so a round-tripped body is worthless as a corpus.
+- **The body is persisted byte-for-byte.** Never unmarshal-then-remarshal, reformat, or normalise a captured body: the Alexa signature is computed over the raw bytes, so a round-tripped body is worthless as a corpus — and, now that verification is in the path, a re-encoded body cannot verify at all. The body is read once into a `[]byte`, verified against exactly those bytes, and decoded from the same buffer. Nothing in the handler chain may read, buffer or re-encode it first.
+- **Only verified requests are captured.** Capturing rejected ones would let any unauthenticated caller fill the disk and would poison the signed-request corpus. Rejections get a distinct warn line and a running counter instead.
 - **The Tailscale auth key comes from the environment only** — never a flag, never a file in the repo, never logged.
 - **Capture failure must not fail the request.** Log it and still return a valid Alexa envelope.
-- **No signature verification yet.** Do not add it opportunistically; it is a separate phase with its own design.
+- **Signature verification is being landed in phases, and the gate fails closed.** The timestamp and certificate-URL checks are done; chain of trust and the signature itself are not. Until they are, `/alexa` rejects **every** request with `400` — that is intended, not a regression. Follow the signing plan; do not improvise the remaining steps.
+- **There is no way to disable verification**, and none may be added — no flag, no environment variable, no build tag. `pkg/alexaverify` exposes exactly three test seams (trusted roots, clock, HTTP client), none of which can weaken production behaviour. Note that a verifier *interface* in the handler would be a disable switch by another name; `main` holds the concrete type deliberately.
+- **Certificate revocation is deliberately not checked.** Neither reference SDK checks it either. Documented in `pkg/alexaverify/doc.go` so it is not mistaken for an oversight.
 - `http.Server` always gets an explicit `ReadHeaderTimeout` and `IdleTimeout`. Never ship a bare `http.Server{}`.
 
 ## Major dependencies
 
-Use Context7 for up-to-date documentation — do not guess at APIs. Query the Context7 ID before using any unfamiliar or version-sensitive API (Go 1.27 and several of these post-date the knowledge cutoff).
+Use Context7 for up-to-date documentation — do not guess at APIs. Query the Context7 ID before using any unfamiliar or version-sensitive API (Go 1.27 and several of these post-date the knowledge cutoff). Every ID below has been resolved and confirmed to exist; do not invent one.
 
 | Library / source | Context7 ID | Notes |
 |---|---|---|
-| `tailscale.com/tsnet` | `/tailscale/tailscale` | Embedded tailnet node; `ListenFunnel` on 443 |
-| `github.com/urfave/cli/v3` | `/urfave/cli` | **The CLI framework. All command line argument handling uses urfave/cli v3** — never `flag`, never a hand-rolled parser. Note v3 is `cli.Command`, not v2's `cli.App` |
-| Alexa Skills Kit docs | look up before use | Request/response envelope shapes; web-service hosting requirements |
-| GoReleaser | `/websites/goreleaser` | Release/snapshot builds; ldflags inject `main.version`/`commit`/`date` |
+| `tailscale.com/tsnet` | `/tailscale/tailscale` | Embedded tailnet node; `ListenFunnel` on 443. Use this one for the **Go API** |
+| Tailscale product docs | `/websites/tailscale` | Use this one for **Funnel, ACLs, auth keys and admin console** behaviour — far broader coverage than the repo ID above |
+| `github.com/urfave/cli/v3` | `/urfave/cli` | **The CLI framework. All command line argument handling uses urfave/cli v3** — never `flag`, never a hand-rolled parser. Note v3 is `cli.Command`, not v2's `cli.App`, so most v2 answers do not transfer |
+| Alexa Skills Kit SDK for Node.js | `/alexa/alexa-skills-kit-sdk-for-nodejs` | One of the two normative sources for request verification; also request/response envelope shapes |
+| GoReleaser | `/goreleaser/goreleaser` | Release/snapshot builds; ldflags inject `main.version`/`commit`/`date` |
 
-Not on Context7: the Go stdlib (`net/http`, `path/filepath`, `log/slog`, `runtime/debug`) — use upstream docs directly.
+Not on Context7 — go to the source instead:
+
+- **The Go stdlib** (`net/http`, `crypto/x509`, `crypto/rsa`, `path/filepath`, `log/slog`, `runtime/debug`): use upstream docs directly. Watch for Go 1.27 idioms the linter enforces, such as `errors.AsType[T](err)` over `errors.As(err, &target)`.
+- **The Alexa Skills Kit SDK for Java.** It is the *other* normative source for signature verification and has no Context7 entry. Fetch the pinned files transiently from `raw.githubusercontent.com`; do **not** vendor them.
+
+### Pinned Alexa verification sources
+
+`pkg/alexaverify` is a port of the request verification in two of Amazon's own SDKs. Both trees are pinned, both are Apache-2.0, and attribution is in `NOTICE`. Fetch them when working on that package; never paraphrase from memory.
+
+| Source | Repo | Commit | Path |
+|---|---|---|---|
+| Java | `alexa/alexa-skills-kit-sdk-for-java` | `e7f16b0523b24a34a7971d4df7ecbb48b4539639` | `ask-sdk-servlet-support/src/com/amazon/ask/servlet/` |
+| Node | `alexa/alexa-skills-kit-sdk-for-nodejs` | `ea88cef4a72a44abf1aff6083472ba08a665862a` | `ask-sdk-express-adapter/lib/verifier/` |
+
+**The intersection principle** is the standing adjudication rule: Amazon cannot emit anything either SDK rejects, or every skill running that SDK would break on the next request. So where the two agree, that is the spec; where they disagree, take the stricter behaviour at zero compatibility risk. Rejecting something *both* accept leaves the intersection and needs a named sentinel error, a distinct warn log and a residual-risk register entry — currently only two: cert-URL userinfo and percent-encoded dot segments.
 
 ### CLI conventions
 
