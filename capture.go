@@ -20,6 +20,11 @@ const captureFilenameLayout = "20060102T150405.000000000Z"
 // records everything needed to reason about the request later without having
 // to trust the body itself — in particular the signature headers, which are
 // the whole reason this corpus exists.
+//
+// There is no "truncated" field. Only verified requests are captured, and a
+// truncated body cannot verify: the signature covers bytes that are no longer
+// all present. A truncated capture is therefore unreachable rather than merely
+// unusual, so recording the possibility would be misleading.
 type captureMetadata struct {
 	ReceivedAt    time.Time   `json:"received_at"`
 	Method        string      `json:"method"`
@@ -29,7 +34,6 @@ type captureMetadata struct {
 	Host          string      `json:"host"`
 	ContentLength int64       `json:"content_length"`
 	BodyLength    int         `json:"body_length"`
-	Truncated     bool        `json:"truncated"`
 	Headers       http.Header `json:"headers"`
 }
 

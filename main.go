@@ -15,6 +15,7 @@ import (
 	"os/signal"
 	"syscall"
 
+	"github.com/jamestelfer/billy/pkg/alexaverify"
 	"tailscale.com/tsnet"
 )
 
@@ -95,6 +96,14 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 		return err
 	}
 
+	// The verifier is built from the service's own public package using only
+	// its exported API: no test seam is set here, so it uses the host's system
+	// root pool, the real clock and the package's bounded HTTP client.
+	verifier, err := alexaverify.New(alexaverify.WithLogger(log))
+	if err != nil {
+		return fmt.Errorf("building the alexa request verifier: %w", err)
+	}
+
 	// First-run Funnel setup provisions a Let's Encrypt certificate for the
 	// node, which can take several seconds. ListenFunnel blocks for it rather
 	// than failing, so there is no startup deadline to tune here.
@@ -108,5 +117,5 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 
 	log.Info("serving", slog.String("url", "https://"+cfg.Hostname+".<tailnet>.ts.net"))
 
-	return serve(ctx, ln, newRouter(log, capture), log)
+	return serve(ctx, ln, newRouter(log, capture, verifier), log)
 }

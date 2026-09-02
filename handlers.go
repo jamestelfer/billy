@@ -4,16 +4,23 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+
+	"github.com/jamestelfer/billy/pkg/alexaverify"
 )
 
 // newRouter builds the service's HTTP routes.
 //
 // The route set is deliberately tiny and locked: /healthz for liveness and
 // /alexa for the skill endpoint. Anything else is a 404 from the mux.
-func newRouter(log *slog.Logger, store *captureStore) http.Handler {
+//
+// The method is part of the pattern, so anything but POST on /alexa is a 405
+// from the mux and never reaches the verifier. Request verification is wired
+// to this one route and no other: /healthz must stay reachable by a probe that
+// has no Alexa signature to offer.
+func newRouter(log *slog.Logger, store *captureStore, verifier *alexaverify.Verifier) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.Handle("POST /alexa", handleAlexa(log, store))
+	mux.Handle("POST /alexa", handleAlexa(log, store, verifier))
 	return mux
 }
 

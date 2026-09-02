@@ -6,6 +6,8 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/jamestelfer/billy/pkg/alexaverify"
 )
 
 // R7: /healthz is a liveness probe — 200, no auth, and nothing sensitive in
@@ -15,7 +17,7 @@ func TestHealthzReturns200WithNonSensitiveBody(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 
-	newRouter(testLogger(), mustCaptureStore(t)).ServeHTTP(rec, req)
+	newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf("GET /healthz status = %d, want %d", rec.Code, http.StatusOK)
@@ -36,7 +38,7 @@ func TestUnknownPathReturns404(t *testing.T) {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/not-a-route", nil)
 
-	newRouter(testLogger(), mustCaptureStore(t)).ServeHTTP(rec, req)
+	newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t)).ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("GET /not-a-route status = %d, want %d", rec.Code, http.StatusNotFound)
@@ -54,4 +56,15 @@ func mustCaptureStore(t *testing.T) *captureStore {
 		t.Fatalf("newCaptureStore() error = %v", err)
 	}
 	return store
+}
+
+// mustVerifier builds a verifier with production defaults for tests that care
+// about routing rather than verification.
+func mustVerifier(t *testing.T) *alexaverify.Verifier {
+	t.Helper()
+	verifier, err := alexaverify.New(alexaverify.WithLogger(testLogger()))
+	if err != nil {
+		t.Fatalf("alexaverify.New() error = %v", err)
+	}
+	return verifier
 }

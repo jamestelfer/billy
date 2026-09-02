@@ -8,11 +8,36 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jamestelfer/billy/pkg/alexaverify"
 )
+
+// testNow is the clock the handler tests pin the verifier to, so a fixture
+// timestamp does not go stale as the repository ages.
+var testNow = time.Date(2026, time.August, 30, 1, 2, 3, 0, time.UTC)
 
 const sampleLaunchRequest = `{"version":"1.0","session":{"new":true,"sessionId":"amzn1.echo-api.session.1",` +
 	`"application":{"applicationId":"amzn1.ask.skill.1"},"user":{"userId":"amzn1.ask.account.1"}},` +
 	`"request":{"type":"LaunchRequest","requestId":"amzn1.echo-api.request.1","timestamp":"2026-08-30T01:02:03Z","locale":"en-AU"}}`
+
+// signatureHeaders are the two headers every Alexa request carries. The values
+// are structurally plausible but not genuine: these tests exercise the gate's
+// routing and logging, not the cryptography.
+func signatureHeaders() map[string]string {
+	return map[string]string{
+		"Signature-256":         "c2lnbmF0dXJl",
+		"SignatureCertChainUrl": "https://s3.amazonaws.com/echo.api/echo-api-cert-1.pem",
+		"Content-Type":          "application/json",
+	}
+}
+
+// launchRequestAt renders the sample body with a different timestamp, so the
+// freshness gate can be driven from the outside.
+func launchRequestAt(ts time.Time) string {
+	return strings.Replace(sampleLaunchRequest,
+		"2026-08-30T01:02:03Z", ts.UTC().Format(time.RFC3339), 1)
+}
 
 func newTestCapture(t *testing.T) (*captureStore, string) {
 	t.Helper()
@@ -35,6 +60,25 @@ func postAlexa(t *testing.T, router http.Handler, body string, headers map[strin
 	return rec
 }
 
+// captureVerifiedRequest drives the post-verification half of the handler
+// directly.
+//
+// The signature step is not implemented yet, so no request can reach this code
+// through the router: the gate fails closed by design. Calling it directly is
+// how the capture and response behaviour stays under test in the meantime —
+// deliberately not by giving the handler a verifier interface a test could
+// stub out, which would be exactly the disable switch the design rules out.
+func captureVerifiedRequest(t *testing.T, store *captureStore, body string, headers map[string]string) *httptest.ResponseRecorder {
+	t.Helper()
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	rec := httptest.NewRecorder()
+	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow)
+	return rec
+}
+
 func onlyCapturedStem(t *testing.T, dir string) string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
@@ -53,14 +97,25 @@ func onlyCapturedStem(t *testing.T, dir string) string {
 	return stems[0]
 }
 
+func assertCaptureDirEmpty(t *testing.T, dir string) {
+	t.Helper()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("reading the capture directory: %v", err)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("capture directory holds %d files, want 0", len(entries))
+	}
+}
+
 // R10: the response must be a structurally valid Alexa envelope.
 func TestAlexaRespondsWithAValidEnvelope(t *testing.T) {
 	store, _ := newTestCapture(t)
 
-	rec := postAlexa(t, newRouter(testLogger(), store), sampleLaunchRequest, nil)
+	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusOK)
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
 	}
 	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
 		t.Errorf("Content-Type = %q, want application/json", ct)
@@ -97,7 +152,7 @@ func TestAlexaRespondsWithAValidEnvelope(t *testing.T) {
 func TestAlexaPersistsTheBodyByteForByte(t *testing.T) {
 	store, dir := newTestCapture(t)
 
-	postAlexa(t, newRouter(testLogger(), store), sampleLaunchRequest, nil)
+	captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
 	stem := onlyCapturedStem(t, dir)
 	body, err := os.ReadFile(filepath.Join(dir, stem+".body"))
@@ -114,12 +169,7 @@ func TestAlexaPersistsTheBodyByteForByte(t *testing.T) {
 func TestAlexaPersistsRequestMetadata(t *testing.T) {
 	store, dir := newTestCapture(t)
 
-	headers := map[string]string{
-		"Signature-256":         "c2lnbmF0dXJl",
-		"SignatureCertChainUrl": "https://s3.amazonaws.com/echo.api/echo-api-cert-1.pem",
-		"Content-Type":          "application/json",
-	}
-	postAlexa(t, newRouter(testLogger(), store), sampleLaunchRequest, headers)
+	captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
 	stem := onlyCapturedStem(t, dir)
 	_, meta := readCapturePair(t, dir, stem)
@@ -141,9 +191,6 @@ func TestAlexaPersistsRequestMetadata(t *testing.T) {
 	}
 	if got := meta["body_length"]; got != float64(len(sampleLaunchRequest)) {
 		t.Errorf("body_length = %v, want %d", got, len(sampleLaunchRequest))
-	}
-	if meta["truncated"] != false {
-		t.Errorf("truncated = %v, want false", meta["truncated"])
 	}
 
 	recorded, ok := meta["headers"].(map[string]any)
@@ -182,10 +229,10 @@ func TestAlexaStillRespondsWhenCaptureFails(t *testing.T) {
 		t.Fatalf("blocking the capture directory: %v", err)
 	}
 
-	rec := postAlexa(t, newRouter(testLogger(), store), sampleLaunchRequest, nil)
+	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
 	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /alexa status = %d, want %d even though the capture failed", rec.Code, http.StatusOK)
+		t.Fatalf("status = %d, want %d even though the capture failed", rec.Code, http.StatusOK)
 	}
 	var envelope map[string]any
 	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
@@ -196,39 +243,115 @@ func TestAlexaStillRespondsWhenCaptureFails(t *testing.T) {
 	}
 }
 
-// The endpoint is public and unauthenticated for this phase, so an unbounded
-// read is a memory-exhaustion vector. Over the limit, what was read is still
-// captured and the sidecar says so.
-func TestAlexaBoundsTheBodyAndRecordsTruncation(t *testing.T) {
+// R14/R21: a request with no verification headers is refused with 400, and
+// skill handling — of which capture is the observable part — never runs.
+func TestAlexaRejectsAMissingSignatureHeader(t *testing.T) {
+	store, dir := newTestCapture(t)
+
+	headers := signatureHeaders()
+	delete(headers, "Signature-256")
+
+	rec := postAlexa(t, newTestRouter(t, store), sampleLaunchRequest, headers)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	assertCaptureDirEmpty(t, dir)
+}
+
+func TestAlexaRejectsAMissingCertChainURLHeader(t *testing.T) {
+	store, dir := newTestCapture(t)
+
+	headers := signatureHeaders()
+	delete(headers, "SignatureCertChainUrl")
+
+	rec := postAlexa(t, newTestRouter(t, store), sampleLaunchRequest, headers)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	assertCaptureDirEmpty(t, dir)
+}
+
+// R27: freshness is checked in both directions. The future case is the one the
+// Node adapter misses entirely.
+func TestAlexaRejectsATimestampOutsideTolerance(t *testing.T) {
+	offsets := map[string]time.Duration{
+		"ten minutes in the past":   -10 * time.Minute,
+		"ten minutes in the future": 10 * time.Minute,
+	}
+
+	for name, offset := range offsets {
+		t.Run(name, func(t *testing.T) {
+			store, dir := newTestCapture(t)
+
+			body := launchRequestAt(testNow.Add(offset))
+			rec := postAlexa(t, newTestRouter(t, store), body, signatureHeaders())
+
+			if rec.Code != http.StatusBadRequest {
+				t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
+			}
+			assertCaptureDirEmpty(t, dir)
+		})
+	}
+}
+
+// The gate fails closed: even a perfectly fresh request is refused while the
+// signature step is unimplemented. This test is expected to be rewritten, not
+// deleted, when signature verification lands.
+func TestAlexaFailsClosedForAFreshUnsignedRequest(t *testing.T) {
+	store, dir := newTestCapture(t)
+
+	rec := postAlexa(t, newTestRouter(t, store), sampleLaunchRequest, signatureHeaders())
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+	assertCaptureDirEmpty(t, dir)
+}
+
+// A rejection must disclose nothing about which check failed: telling a caller
+// that the timestamp was fine but the signature was not is free intelligence.
+func TestAlexaRejectionsAreIndistinguishableToTheCaller(t *testing.T) {
+	store, _ := newTestCapture(t)
+	router := newTestRouter(t, store)
+
+	noHeaders := signatureHeaders()
+	delete(noHeaders, "Signature-256")
+
+	missing := postAlexa(t, router, sampleLaunchRequest, noHeaders)
+	stale := postAlexa(t, router, launchRequestAt(testNow.Add(-time.Hour)), signatureHeaders())
+
+	if missing.Code != stale.Code {
+		t.Errorf("statuses differ: missing header %d, stale timestamp %d", missing.Code, stale.Code)
+	}
+	if missing.Body.String() != stale.Body.String() {
+		t.Errorf("bodies differ:\n missing header: %q\n stale timestamp: %q",
+			missing.Body.String(), stale.Body.String())
+	}
+}
+
+// The endpoint is public, so an unbounded read is a memory-exhaustion vector.
+// Over the limit the request is refused outright: a truncated body can never
+// verify, and must never be allowed to verify a prefix of itself.
+func TestAlexaRejectsAnOversizedBodyAndCapturesNothing(t *testing.T) {
 	store, dir := newTestCapture(t)
 
 	oversized := "{\"pad\":\"" + strings.Repeat("x", maxBodyBytes) + "\"}"
-	rec := postAlexa(t, newRouter(testLogger(), store), oversized, nil)
+	rec := postAlexa(t, newTestRouter(t, store), oversized, signatureHeaders())
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusOK)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
 	}
-
-	stem := onlyCapturedStem(t, dir)
-	body, meta := readCapturePair(t, dir, stem)
-
-	if len(body) > maxBodyBytes {
-		t.Errorf("captured %d bytes, want at most %d", len(body), maxBodyBytes)
-	}
-	if meta["truncated"] != true {
-		t.Errorf("truncated = %v, want true", meta["truncated"])
-	}
-	if got := meta["body_length"]; got != float64(len(body)) {
-		t.Errorf("body_length = %v, want %d", got, len(body))
-	}
+	assertCaptureDirEmpty(t, dir)
 }
 
 // Regression watchpoint: adding /alexa must not shadow /healthz.
 func TestHealthzStillAnswersAlongsideAlexa(t *testing.T) {
 	store, _ := newTestCapture(t)
-	router := newRouter(testLogger(), store)
+	router := newTestRouter(t, store)
 
-	postAlexa(t, router, sampleLaunchRequest, nil)
+	postAlexa(t, router, sampleLaunchRequest, signatureHeaders())
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
@@ -239,23 +362,51 @@ func TestHealthzStillAnswersAlongsideAlexa(t *testing.T) {
 	}
 }
 
-// Alexa only ever POSTs. Anything else is a probe, and must not create a
-// capture file: the disk is the scarce resource on an open endpoint.
-func TestGetAlexaIsRejectedAndCapturesNothing(t *testing.T) {
-	store, dir := newTestCapture(t)
+// R22: Alexa only ever POSTs. Anything else is a probe: it gets a 405 from the
+// mux, never reaches verification, and must not create a capture file.
+func TestNonPostAlexaIsRejectedAndCapturesNothing(t *testing.T) {
+	for _, method := range []string{http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		t.Run(method, func(t *testing.T) {
+			store, dir := newTestCapture(t)
+
+			rec := httptest.NewRecorder()
+			req := httptest.NewRequestWithContext(t.Context(), method, "/alexa", nil)
+			newTestRouter(t, store).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusMethodNotAllowed {
+				t.Errorf("%s /alexa status = %d, want %d", method, rec.Code, http.StatusMethodNotAllowed)
+			}
+			assertCaptureDirEmpty(t, dir)
+		})
+	}
+}
+
+// R22: verification is wired to /alexa and nowhere else, so a probe with no
+// signature to offer can still reach the liveness endpoint.
+func TestVerificationIsNotAppliedToHealthz(t *testing.T) {
+	store, _ := newTestCapture(t)
 
 	rec := httptest.NewRecorder()
-	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/alexa", nil)
-	newRouter(testLogger(), store).ServeHTTP(rec, req)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
+	newTestRouter(t, store).ServeHTTP(rec, req)
 
-	if rec.Code == http.StatusOK {
-		t.Errorf("GET /alexa status = %d, want a rejection", rec.Code)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("GET /healthz status = %d, want %d with no signature headers", rec.Code, http.StatusOK)
 	}
-	entries, err := os.ReadDir(dir)
+}
+
+// newTestRouter builds the production router with the verifier's clock pinned.
+// The clock is the only seam these tests use: the trusted roots and the HTTP
+// client stay at their production defaults, so nothing here can admit a
+// request that production would refuse.
+func newTestRouter(t *testing.T, store *captureStore) http.Handler {
+	t.Helper()
+	verifier, err := alexaverify.New(
+		alexaverify.WithClock(func() time.Time { return testNow }),
+		alexaverify.WithLogger(testLogger()),
+	)
 	if err != nil {
-		t.Fatalf("reading the capture directory: %v", err)
+		t.Fatalf("alexaverify.New() error = %v", err)
 	}
-	if len(entries) != 0 {
-		t.Errorf("GET /alexa left %d files in the capture directory, want 0", len(entries))
-	}
+	return newRouter(testLogger(), store, verifier)
 }
