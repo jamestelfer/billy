@@ -68,9 +68,7 @@ func postAlexa(t *testing.T, router http.Handler, body string, headers map[strin
 //
 // The signature step is not implemented yet, so no request can reach this code
 // through the router: the gate fails closed by design. Calling it directly is
-// how the capture and response behaviour stays under test in the meantime —
-// deliberately not by giving the handler a verifier interface a test could
-// stub out, which would be exactly the disable switch the design rules out.
+// how the capture and response behaviour stays under test in the meantime.
 func captureVerifiedRequest(t *testing.T, store *captureStore, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))

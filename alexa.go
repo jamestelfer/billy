@@ -61,12 +61,6 @@ func newAlexaEnvelope(text string) alexaEnvelope {
 // handleAlexa verifies the request came from Alexa, then captures it and
 // answers with a valid envelope.
 //
-// The verifier is the concrete type from the service's own public package, not
-// an interface. That is deliberate: an interface here would be a seam a test
-// could fill with something permissive, which is precisely the disable switch
-// the design rules out. Verification is either on for everyone or the binary
-// does not build.
-//
 // Capture happens only after a request verifies. Capturing rejected requests
 // would help diagnose a verification bug, but it hands any unauthenticated
 // caller a way to fill the disk, and it would poison the signed-request corpus

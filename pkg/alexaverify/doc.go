@@ -28,12 +28,10 @@
 //
 // # There is no way to disable verification
 //
-// This package deliberately provides no switch, environment variable, build
-// tag or option that turns verification off. The Java SDK has such a system
-// property; it is not ported. Tests get exactly three seams instead — the
-// trusted root pool, the clock and the HTTP client — none of which can weaken
-// production behaviour, because supplying a hostile root pool or a lying clock
-// requires already being inside the process.
+// This package provides no switch, environment variable, build tag or option
+// that turns verification off. The Java SDK has such a system property; it is
+// not ported. Tests get the three seams below instead — the trusted root pool,
+// the clock and the HTTP client.
 //
 // # Certificate revocation is not checked
 //
