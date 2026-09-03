@@ -3,17 +3,12 @@ package alexaverify
 import (
 	"context"
 	"crypto/x509"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"sync"
 	"time"
 )
-
-// errWarmNotImplemented remains until the in-memory cache lands. Warm cannot
-// report success before there is somewhere to retain the fetched chain.
-var errWarmNotImplemented = errors.New("alexaverify: cache warming not implemented")
 
 // Verifier checks that a request was signed by Alexa.
 //
@@ -117,8 +112,8 @@ func WithTolerance(d time.Duration) Option {
 	}
 }
 
-// WithLogger sets the logger used for operational warnings, such as a clamped
-// tolerance. It does not affect any verification verdict.
+// WithLogger sets the logger used for operational events such as certificate
+// fetches and a clamped tolerance. It does not affect any verification verdict.
 func WithLogger(log *slog.Logger) Option {
 	return func(v *Verifier) error {
 		v.log = log
@@ -183,8 +178,13 @@ func (v *Verifier) verifySignature(ctx context.Context, body []byte, signature, 
 //
 // It is best effort by contract. Callers should log a failure and carry on:
 // egress being unavailable at boot is not a reason to refuse to start.
-func (v *Verifier) Warm(_ context.Context, _ string) error {
-	return errWarmNotImplemented
+func (v *Verifier) Warm(ctx context.Context, seedURL string) error {
+	canonicalURL, err := normalizeCertChainURL(seedURL)
+	if err != nil {
+		return err
+	}
+	_, err = v.loadCertificateChain(ctx, canonicalURL, v.now())
+	return err
 }
 
 func (v *Verifier) logger() *slog.Logger {

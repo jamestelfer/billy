@@ -33,6 +33,10 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if want := filepath.Join(userConfig, "billy", "capture"); cfg.CaptureDir != want {
 		t.Errorf("CaptureDir = %q, want %q", cfg.CaptureDir, want)
 	}
+	if cfg.CertChainURL != defaultCertChainURL {
+		t.Errorf("CertChainURL = %q, want the observed Alexa URL %q",
+			cfg.CertChainURL, defaultCertChainURL)
+	}
 	if cfg.Addr != ":443" {
 		t.Errorf("Addr = %q, want %q — Funnel and Alexa both require 443", cfg.Addr, ":443")
 	}
@@ -41,12 +45,14 @@ func TestLoadConfigDefaults(t *testing.T) {
 func TestLoadConfigOverridesEveryDefault(t *testing.T) {
 	stateDir := t.TempDir()
 	captureDir := t.TempDir()
+	certChainURL := "https://s3.amazonaws.com/echo.api/override.pem"
 
 	cfg, err := loadConfig(env(map[string]string{
-		"TS_AUTHKEY":        "tskey-auth-secret",
-		"BILLY_HOSTNAME":    "echo-capture",
-		"BILLY_STATE_DIR":   stateDir,
-		"BILLY_CAPTURE_DIR": captureDir,
+		"TS_AUTHKEY":           "tskey-auth-secret",
+		"BILLY_HOSTNAME":       "echo-capture",
+		"BILLY_STATE_DIR":      stateDir,
+		"BILLY_CAPTURE_DIR":    captureDir,
+		"BILLY_CERT_CHAIN_URL": certChainURL,
 	}), t.TempDir())
 	if err != nil {
 		t.Fatalf("loadConfig() error = %v", err)
@@ -60,6 +66,9 @@ func TestLoadConfigOverridesEveryDefault(t *testing.T) {
 	}
 	if cfg.CaptureDir != captureDir {
 		t.Errorf("CaptureDir = %q, want %q", cfg.CaptureDir, captureDir)
+	}
+	if cfg.CertChainURL != certChainURL {
+		t.Errorf("CertChainURL = %q, want %q", cfg.CertChainURL, certChainURL)
 	}
 }
 

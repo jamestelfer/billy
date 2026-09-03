@@ -1,5 +1,9 @@
 # Plan: ABS Alexa Skill — Request Capture Slice
 
+> **Status:** complete. `R12` was a temporary scope boundary for this historical
+> plan and is now retired; Alexa signature verification is enforced by the
+> follow-on signing plan.
+>
 > Source PRD: `ABS skill Sketch` (project document). This plan covers **only** the first three phases: repo bootstrap, Funnel reachability, and raw Alexa request capture. Signed URLs, ABS integration, AudioPlayer directives, SQLite state and signature verification are explicitly **out of scope** and will be planned separately once a request corpus exists.
 
 ## Purpose of this slice

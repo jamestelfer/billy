@@ -30,6 +30,10 @@ type config struct {
 	// CaptureDir holds the captured Alexa requests. Its contents are secret.
 	CaptureDir string
 
+	// CertChainURL seeds the in-memory Alexa signing certificate cache at
+	// startup. Warming is best effort and never delays readiness.
+	CertChainURL string
+
 	// Addr is the Funnel listen address. Funnel permits only 443, 8443 and
 	// 10000, and Alexa requires 443.
 	Addr string
@@ -38,13 +42,21 @@ type config struct {
 // Environment variable names. TS_AUTHKEY follows Tailscale's own convention
 // so an operator who already has a key exported does not have to rename it.
 const (
-	envAuthKey    = "TS_AUTHKEY"
-	envHostname   = "BILLY_HOSTNAME"
-	envStateDir   = "BILLY_STATE_DIR"
-	envCaptureDir = "BILLY_CAPTURE_DIR"
+	envAuthKey      = "TS_AUTHKEY"
+	envHostname     = "BILLY_HOSTNAME"
+	envStateDir     = "BILLY_STATE_DIR"
+	envCaptureDir   = "BILLY_CAPTURE_DIR"
+	envCertChainURL = "BILLY_CERT_CHAIN_URL"
 )
 
-const defaultHostname = "billy"
+const (
+	defaultHostname = "billy"
+
+	// This is a public S3 object URL observed on genuine Alexa requests. A
+	// rotation merely makes the best-effort warm fail or seed an unused key;
+	// the first request then fetches the URL carried in that request as usual.
+	defaultCertChainURL = "https://s3.amazonaws.com/echo.api/echo-api-cert-USAmazon-prod-30584302.pem"
+)
 
 // loadConfig resolves the configuration from getenv, defaulting directories
 // under userConfigDir.
@@ -59,11 +71,12 @@ const defaultHostname = "billy"
 // not — Go's permission bits are largely inert there.
 func loadConfig(getenv func(string) string, userConfigDir string) (config, error) {
 	cfg := config{
-		Hostname:   orDefault(getenv(envHostname), defaultHostname),
-		AuthKey:    getenv(envAuthKey),
-		StateDir:   orDefault(getenv(envStateDir), filepath.Join(userConfigDir, "billy", "tsnet")),
-		CaptureDir: orDefault(getenv(envCaptureDir), filepath.Join(userConfigDir, "billy", "capture")),
-		Addr:       ":443",
+		Hostname:     orDefault(getenv(envHostname), defaultHostname),
+		AuthKey:      getenv(envAuthKey),
+		StateDir:     orDefault(getenv(envStateDir), filepath.Join(userConfigDir, "billy", "tsnet")),
+		CaptureDir:   orDefault(getenv(envCaptureDir), filepath.Join(userConfigDir, "billy", "capture")),
+		CertChainURL: orDefault(getenv(envCertChainURL), defaultCertChainURL),
+		Addr:         ":443",
 	}
 	if err := validHostname(cfg.Hostname); err != nil {
 		return config{}, fmt.Errorf("%s: %w", envHostname, err)
@@ -106,6 +119,7 @@ func (c config) LogValue() slog.Value {
 		slog.Bool("auth_key_present", c.AuthKey != ""),
 		slog.String("state_dir", c.StateDir),
 		slog.String("capture_dir", c.CaptureDir),
+		slog.String("cert_chain_url", c.CertChainURL),
 		slog.String("addr", c.Addr),
 	)
 }

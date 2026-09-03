@@ -26,6 +26,14 @@
 // re-encoding the JSON before verification — even through a middleware that
 // means well — produces different bytes and every signature will fail.
 //
+// # Certificate cache and warming
+//
+// Validated certificate chains are cached in memory under their normalized
+// URLs. The cache is bounded, is never persisted, and rechecks the leaf's
+// NotBefore and NotAfter bounds on every hit. Warm can seed that same cache at
+// startup. A warm failure should be logged and ignored so certificate egress
+// cannot prevent the caller's service from becoming ready.
+//
 // # There is no way to disable verification
 //
 // This package provides no switch, environment variable, build tag or option

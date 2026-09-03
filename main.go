@@ -1,8 +1,8 @@
 // Command billy is a self-hosted Alexa skill endpoint for Audiobookshelf.
 //
-// At this stage it does one thing: reach the public internet over an embedded
-// Tailscale Funnel listener and capture the raw bytes of every Alexa request,
-// so those bytes can serve as the corpus for building signature verification.
+// It reaches the public internet over an embedded Tailscale Funnel listener,
+// verifies each Alexa request in-process, and captures the exact bytes of every
+// verified request.
 package main
 
 import (
@@ -156,6 +156,14 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 		return fmt.Errorf("listening on funnel %s: %w", cfg.Addr, err)
 	}
 	defer func() { _ = ln.Close() }()
+
+	// Warming is deliberately asynchronous. A slow or unavailable S3 endpoint
+	// must not hold /healthz closed or prevent startup; the first real request
+	// can still populate the cache on demand. The child context also stops the
+	// goroutine if serving returns before the process context is cancelled.
+	warmCtx, cancelWarm := context.WithCancel(ctx)
+	defer cancelWarm()
+	_ = startCertificateCacheWarm(warmCtx, verifier, cfg.CertChainURL, log)
 
 	log.Info("serving", slog.String("url", "https://"+cfg.Hostname+".<tailnet>.ts.net"))
 

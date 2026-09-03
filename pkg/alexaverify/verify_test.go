@@ -265,16 +265,14 @@ func TestSignatureGateFailsClosedWhenCertificateFetchFails(t *testing.T) {
 	}
 }
 
-func TestWarmIsCallableAndFailsClosed(t *testing.T) {
+func TestWarmRejectsAnInvalidSeedURLWithoutFetching(t *testing.T) {
 	t.Parallel()
 
-	v, err := New()
+	v, err := New(WithHTTPClient(failingHTTPClient()))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	// Warm is part of the public surface from the outset so embedders can rely
-	// on it; it must not pretend to have succeeded before it does anything.
-	if err := v.Warm(context.Background(), "https://s3.amazonaws.com/echo.api/echo-api-cert.pem"); err == nil {
-		t.Fatal("Warm reported success without populating anything")
+	if err := v.Warm(context.Background(), "https://very.bad/echo.api/cert"); !errors.Is(err, ErrCertURLInvalid) {
+		t.Fatalf("got %v, want ErrCertURLInvalid", err)
 	}
 }

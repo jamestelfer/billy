@@ -14,6 +14,24 @@ func headersForURL(signature, certURL string) http.Header {
 	return headers
 }
 
+func TestWarmPopulatesTheCertificateCache(t *testing.T) {
+	pki := generateTestPKI(t, fixedNow)
+	leaf := pki.issueLeaf(t, validLeafSpec(fixedNow))
+	body := envelope("LaunchRequest", fixedNow)
+	signature := signBody(t, leaf.key, body)
+	verifier, calls := verifierServingBundle(t, pki.roots, fixedNow, leaf.bundle)
+
+	if err := verifier.Warm(t.Context(), testCertURL); err != nil {
+		t.Fatalf("Warm: %v", err)
+	}
+	if err := verifier.Verify(t.Context(), body, headersFor(signature)); err != nil {
+		t.Fatalf("Verify after Warm: %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("certificate fetches = %d, want 1 shared by Warm and Verify", got)
+	}
+}
+
 func TestCertificateCacheFetchesOnceForSuccessiveVerifications(t *testing.T) {
 	pki := generateTestPKI(t, fixedNow)
 	leaf := pki.issueLeaf(t, validLeafSpec(fixedNow))
