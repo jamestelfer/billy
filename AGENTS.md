@@ -102,9 +102,3 @@ testable without a process boundary. urfave/cli's default `ExitErrHandler`
 writes to a package global and calls `os.Exit`, so it is replaced with a no-op
 and exit-code mapping is done in `run`. Exit codes: `0` success, `1` runtime
 failure, `2` usage error.
-
-## Release automation
-
-`release-please.yml` and `release.yml` delegate to the shared `chinmina/.github` reusable workflows on the keyless octo-sts path. Everything except the GitHub release itself is opted out: no npm, no Docker login, no Homebrew cask, no binstaller install script. Artifacts are copied to hosts by hand.
-
-This path depends on octo-sts trust policies named by convention (`release-please-billy`, `release-billy`) existing for the repository. If they do not, the release jobs fail at their first step — substitute a plain local `goreleaser release` job rather than weakening the token model.
