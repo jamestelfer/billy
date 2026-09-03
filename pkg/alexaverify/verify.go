@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 )
 
@@ -43,7 +44,9 @@ type Verifier struct {
 	// one hour window regardless of this setting.
 	Tolerance time.Duration
 
-	log *slog.Logger
+	log       *slog.Logger
+	cacheOnce sync.Once
+	cache     *certCache
 }
 
 // Option configures a [Verifier] passed to [New].
@@ -167,18 +170,8 @@ func (v *Verifier) verifySignature(ctx context.Context, body []byte, signature, 
 		return err
 	}
 
-	bundle, err := v.fetchCertificateChain(ctx, canonicalURL)
+	chain, err := v.loadCertificateChain(ctx, canonicalURL, v.now())
 	if err != nil {
-		return err
-	}
-	chain, err := parsePEMChain(bundle)
-	if err != nil {
-		return err
-	}
-	if err := v.validateChain(chain, v.now()); err != nil {
-		return err
-	}
-	if err := verifyCertificateHostname(chain.leaf); err != nil {
 		return err
 	}
 	return verifyBodySignature(body, signature, chain.leaf)
@@ -192,6 +185,13 @@ func (v *Verifier) verifySignature(ctx context.Context, body []byte, signature, 
 // egress being unavailable at boot is not a reason to refuse to start.
 func (v *Verifier) Warm(_ context.Context, _ string) error {
 	return errWarmNotImplemented
+}
+
+func (v *Verifier) logger() *slog.Logger {
+	if v.log != nil {
+		return v.log
+	}
+	return slog.Default()
 }
 
 // now reads the clock through the seam, defaulting to time.Now.

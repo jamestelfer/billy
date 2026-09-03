@@ -46,6 +46,10 @@ const (
 	// Java makes six attempts and Node makes one; two preserves one bounded
 	// retry without spending Alexa's response budget on a prolonged stall.
 	certificateFetchAttempts = 2
+
+	// maxCertificateCacheEntries bounds attacker-controlled URL cardinality to
+	// a handful of parsed chains. Amazon normally uses only one URL at a time.
+	maxCertificateCacheEntries = 5
 )
 
 const (
