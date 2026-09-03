@@ -32,6 +32,20 @@ const (
 	// validCertPort is the only explicit port accepted on a chain URL. An
 	// absent port is also accepted and means the same thing.
 	validCertPort = "443"
+
+	// echoAPIDomain is the DNS SAN required on the signing leaf.
+	// ServletConstants.ECHO_API_DOMAIN_NAME.
+	echoAPIDomain = "echo-api.amazon.com"
+
+	// maxCertificateChainBytes bounds the certificate response before it is
+	// parsed. Alexa's current PEM bundle is only a few kilobytes; 64 KiB leaves
+	// ample room for rotation without permitting an unbounded download.
+	maxCertificateChainBytes = 64 << 10
+
+	// certificateFetchAttempts is the total attempt count, not a retry count.
+	// Java makes six attempts and Node makes one; two preserves one bounded
+	// retry without spending Alexa's response budget on a prolonged stall.
+	certificateFetchAttempts = 2
 )
 
 const (
@@ -50,6 +64,13 @@ const (
 	// which Amazon may deliver up to an hour late by design.
 	// ServletConstants.TOLERANCE_SKILL_EVENTS_MILLIS.
 	skillEventTolerance = time.Hour
+
+	// certificateFetchTimeout bounds both attempts together. Alexa allows only
+	// a short response window, so certificate egress cannot consume it all.
+	certificateFetchTimeout = 2 * time.Second
+
+	// certificateFetchRetryDelay is intentionally short and context-aware.
+	certificateFetchRetryDelay = 50 * time.Millisecond
 )
 
 // skillEventRequestTypes is ServletConstants.SKILL_EVENT_REQUESTS, and the

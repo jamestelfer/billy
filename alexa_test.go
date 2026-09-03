@@ -64,11 +64,9 @@ func postAlexa(t *testing.T, router http.Handler, body string, headers map[strin
 }
 
 // captureVerifiedRequest drives the post-verification half of the handler
-// directly.
-//
-// The signature step is not implemented yet, so no request can reach this code
-// through the router: the gate fails closed by design. Calling it directly is
-// how the capture and response behaviour stays under test in the meantime.
+// directly. Capture-only tests use it to isolate filesystem and response
+// behaviour from the comparatively expensive generated-certificate fixture;
+// the complete verified route is covered in alexa_signature_test.go.
 func captureVerifiedRequest(t *testing.T, store *captureStore, body string, headers map[string]string) *httptest.ResponseRecorder {
 	t.Helper()
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
@@ -297,9 +295,8 @@ func TestAlexaRejectsATimestampOutsideTolerance(t *testing.T) {
 	}
 }
 
-// The gate fails closed: even a perfectly fresh request is refused while the
-// signature step is unimplemented. This test is expected to be rewritten, not
-// deleted, when signature verification lands.
+// The gate fails closed: a fresh request with merely plausible signature
+// headers is still refused when its certificate cannot be fetched and checked.
 func TestAlexaFailsClosedForAFreshUnsignedRequest(t *testing.T) {
 	store, dir := newTestCapture(t)
 
@@ -496,10 +493,9 @@ func TestAlexaChecksTheTimestampBeforeTheCertChainURL(t *testing.T) {
 	}
 }
 
-// newTestRouter builds the production router with the verifier's clock pinned.
-// The clock is the only seam these tests use: the trusted roots and the HTTP
-// client stay at their production defaults, so nothing here can admit a
-// request that production would refuse.
+// newTestRouter builds the production router with the verifier's clock pinned
+// and certificate egress blocked. Tests that need a valid chain inject one
+// explicitly; ordinary handler tests must stay offline and fail closed.
 func newTestRouter(t *testing.T, store *captureStore) http.Handler {
 	t.Helper()
 	return newTestRouterWithLog(t, store, io.Discard)
@@ -510,8 +506,12 @@ func newTestRouter(t *testing.T, store *captureStore) http.Handler {
 func newTestRouterWithLog(t *testing.T, store *captureStore, out io.Writer) http.Handler {
 	t.Helper()
 	log := slog.New(slog.NewTextHandler(out, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	client := &http.Client{Transport: handlerRoundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, http.ErrServerClosed
+	})}
 	verifier, err := alexaverify.New(
 		alexaverify.WithClock(func() time.Time { return testNow }),
+		alexaverify.WithHTTPClient(client),
 		alexaverify.WithLogger(log),
 	)
 	if err != nil {

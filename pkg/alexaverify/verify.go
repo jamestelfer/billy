@@ -10,12 +10,9 @@ import (
 	"time"
 )
 
-// errNotImplemented is returned by verification steps that have not landed
-// yet. It exists so the gate fails closed while the feature is built out in
-// phases: a request that reaches an unimplemented step is rejected, never
-// admitted. It is unexported and temporary — nothing outside this package can
-// depend on it, and it disappears once every step is implemented.
-var errNotImplemented = errors.New("alexaverify: verification step not implemented")
+// errWarmNotImplemented remains until the in-memory cache lands. Warm cannot
+// report success before there is somewhere to retain the fetched chain.
+var errWarmNotImplemented = errors.New("alexaverify: cache warming not implemented")
 
 // Verifier checks that a request was signed by Alexa.
 //
@@ -161,18 +158,30 @@ func (v *Verifier) Verify(ctx context.Context, body []byte, hdr http.Header) err
 
 // verifySignature checks the Signature-256 header against the certificate
 // chain published at certChainURL.
-func (v *Verifier) verifySignature(_ context.Context, _ []byte, _, certChainURL string) error {
+func (v *Verifier) verifySignature(ctx context.Context, body []byte, signature, certChainURL string) error {
 	// The URL decides where this process makes an outbound HTTPS request, so it
 	// is validated before anything touches the network. A rejected URL must
 	// never open a connection.
-	if _, err := normalizeCertChainURL(certChainURL); err != nil {
+	canonicalURL, err := normalizeCertChainURL(certChainURL)
+	if err != nil {
 		return err
 	}
 
-	// Not yet implemented. Returning an error here is what keeps the gate
-	// closed: until the chain and signature work lands, no request is admitted
-	// on the strength of a signature nobody checked.
-	return errNotImplemented
+	bundle, err := v.fetchCertificateChain(ctx, canonicalURL)
+	if err != nil {
+		return err
+	}
+	chain, err := parsePEMChain(bundle)
+	if err != nil {
+		return err
+	}
+	if err := v.validateChain(chain, v.now()); err != nil {
+		return err
+	}
+	if err := verifyCertificateHostname(chain.leaf); err != nil {
+		return err
+	}
+	return verifyBodySignature(body, signature, chain.leaf)
 }
 
 // Warm populates the in-memory certificate cache from seedURL, so the first
@@ -182,7 +191,7 @@ func (v *Verifier) verifySignature(_ context.Context, _ []byte, _, certChainURL 
 // It is best effort by contract. Callers should log a failure and carry on:
 // egress being unavailable at boot is not a reason to refuse to start.
 func (v *Verifier) Warm(_ context.Context, _ string) error {
-	return errNotImplemented
+	return errWarmNotImplemented
 }
 
 // now reads the clock through the seam, defaulting to time.Now.

@@ -17,6 +17,18 @@ var fixedNow = time.Date(2025, time.March, 1, 12, 0, 0, 0, time.UTC)
 
 func at(t time.Time) func() time.Time { return func() time.Time { return t } }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) {
+	return f(request)
+}
+
+func failingHTTPClient() *http.Client {
+	return &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return nil, errors.New("test transport does not fetch")
+	})}
+}
+
 // envelope builds a minimal Alexa request envelope with the given type and
 // timestamp. The bytes it returns are what gets verified, exactly as they are.
 func envelope(requestType string, ts time.Time) []byte {
@@ -84,7 +96,7 @@ func TestVerifyHeaderLookupIsCaseInsensitive(t *testing.T) {
 	h.Set("signature-256", "not-checked-in-this-test")
 	h.Set("signaturecertchainurl", "https://s3.amazonaws.com/echo.api/echo-api-cert.pem")
 
-	v, err := New(WithClock(at(fixedNow)))
+	v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
@@ -126,7 +138,7 @@ func TestVerifyTimestampGate(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			v, err := New(WithClock(at(fixedNow)))
+			v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
 			if err != nil {
 				t.Fatalf("New: %v", err)
 			}
@@ -141,10 +153,11 @@ func TestVerifyTimestampGate(t *testing.T) {
 				t.Fatalf("passed the timestamp gate expected, got %v", err)
 			}
 
-			// Anything that clears the timestamp gate must still be refused:
-			// the gate fails closed while the signature step is unbuilt.
-			if !tc.wantStale && !errors.Is(err, errNotImplemented) {
-				t.Fatalf("got %v, want the gate to fail closed at the signature step", err)
+			// Anything that clears the timestamp gate proceeds to the signature
+			// path. This test's transport refuses all I/O, proving freshness was
+			// accepted without depending on the network.
+			if !tc.wantStale && !errors.Is(err, ErrCertFetch) {
+				t.Fatalf("got %v, want the request to reach certificate fetch", err)
 			}
 		})
 	}
@@ -238,18 +251,17 @@ func TestZeroValueVerifierIsNotPermissive(t *testing.T) {
 	}
 }
 
-// The signature step is not built yet, so nothing may be admitted. This test
-// is the explicit statement of "fails closed", and it is expected to be
-// rewritten — not deleted — when the signature work lands.
-func TestSignatureStepFailsClosed(t *testing.T) {
+// The signature gate fails closed when its certificate dependency is
+// unavailable; freshness alone can never admit a request.
+func TestSignatureGateFailsClosedWhenCertificateFetchFails(t *testing.T) {
 	t.Parallel()
 
-	v, err := New(WithClock(at(fixedNow)))
+	v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	if err := v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), signedHeaders()); err == nil {
-		t.Fatal("Verify admitted a request with no signature check implemented")
+	if err := v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), signedHeaders()); !errors.Is(err, ErrCertFetch) {
+		t.Fatalf("got %v, want ErrCertFetch", err)
 	}
 }
 
