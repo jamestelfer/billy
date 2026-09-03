@@ -1,0 +1,2 @@
+# Signed corpus bodies are byte-for-byte fixtures. Never translate line endings.
+pkg/alexaverify/testdata/corpus/**/body.json -text

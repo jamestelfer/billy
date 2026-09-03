@@ -1,0 +1,18 @@
+{
+  "version": "1.0",
+  "context": {
+    "System": {
+      "application": {"applicationId": "amzn1.ask.skill.synthetic"},
+      "user": {"userId": "synthetic-user-id"},
+      "device": {"deviceId": "synthetic-device-id"},
+      "apiEndpoint": "https://api.amazonalexa.com",
+      "apiAccessToken": "synthetic-api-access-token"
+    }
+  },
+  "request": {
+    "type": "AudioPlayer.PlaybackStopped",
+    "requestId": "synthetic-audioplayer.playbackstopped",
+    "timestamp": "2026-01-02T03:04:05Z",
+    "locale": "en-US","token":"synthetic-audio-token","offsetInMilliseconds":32000
+  }
+}
