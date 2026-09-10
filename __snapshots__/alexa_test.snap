@@ -1,0 +1,13 @@
+
+[TestAlexaRespondsWithAValidEnvelope - 1]
+{
+ "response": {
+  "outputSpeech": {
+   "text": "Captured.",
+   "type": "PlainText"
+  },
+  "shouldEndSession": true
+ },
+ "version": "1.0"
+}
+---

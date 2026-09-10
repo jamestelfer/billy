@@ -9,6 +9,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // fixedNow is the clock every test pins to, so nothing here depends on when it
@@ -74,13 +76,9 @@ func TestVerifyRequiresBothHeaders(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			v, err := New(WithClock(at(fixedNow)))
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
+			require.NoError(t, err, "New: %v", err)
 			err = v.Verify(t.Context(), body, headers())
-			if !errors.Is(err, ErrMissingHeader) {
-				t.Fatalf("got %v, want ErrMissingHeader", err)
-			}
+			require.ErrorIs(t, err, ErrMissingHeader, "got %v, want ErrMissingHeader", err)
 		})
 	}
 }
@@ -97,14 +95,10 @@ func TestVerifyHeaderLookupIsCaseInsensitive(t *testing.T) {
 	h.Set("signaturecertchainurl", "https://s3.amazonaws.com/echo.api/echo-api-cert.pem")
 
 	v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	require.NoError(t, err, "New: %v", err)
 
 	err = v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), h)
-	if errors.Is(err, ErrMissingHeader) {
-		t.Fatalf("headers were not found case-insensitively: %v", err)
-	}
+	require.NotErrorIs(t, err, ErrMissingHeader, "headers were not found case-insensitively: %v", err)
 }
 
 func TestVerifyTimestampGate(t *testing.T) {
@@ -139,26 +133,21 @@ func TestVerifyTimestampGate(t *testing.T) {
 			t.Parallel()
 
 			v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
+			require.NoError(t, err, "New: %v", err)
 
 			body := envelope(tc.requestType, fixedNow.Add(tc.offset))
 			err = v.Verify(t.Context(), body, signedHeaders())
 
-			switch {
-			case tc.wantStale && !errors.Is(err, ErrStaleTimestamp):
-				t.Fatalf("got %v, want ErrStaleTimestamp", err)
-			case !tc.wantStale && errors.Is(err, ErrStaleTimestamp):
-				t.Fatalf("passed the timestamp gate expected, got %v", err)
+			if tc.wantStale {
+				require.ErrorIs(t, err, ErrStaleTimestamp)
+				return
 			}
 
 			// Anything that clears the timestamp gate proceeds to the signature
 			// path. This test's transport refuses all I/O, proving freshness was
 			// accepted without depending on the network.
-			if !tc.wantStale && !errors.Is(err, ErrCertFetch) {
-				t.Fatalf("got %v, want the request to reach certificate fetch", err)
-			}
+			require.NotErrorIs(t, err, ErrStaleTimestamp, "passed the timestamp gate expected, got %v", err)
+			require.ErrorIs(t, err, ErrCertFetch, "got %v, want the request to reach certificate fetch", err)
 		})
 	}
 }
@@ -182,12 +171,8 @@ func TestVerifyUndecodableTimestampIsStale(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
 			v, err := New(WithClock(at(fixedNow)))
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
-			if err := v.Verify(t.Context(), body, signedHeaders()); !errors.Is(err, ErrStaleTimestamp) {
-				t.Fatalf("got %v, want ErrStaleTimestamp", err)
-			}
+			require.NoError(t, err, "New: %v", err)
+			require.ErrorIs(t, v.Verify(t.Context(), body, signedHeaders()), ErrStaleTimestamp)
 		})
 	}
 }
@@ -195,9 +180,8 @@ func TestVerifyUndecodableTimestampIsStale(t *testing.T) {
 func TestNewRejectsNegativeTolerance(t *testing.T) {
 	t.Parallel()
 
-	if _, err := New(WithTolerance(-time.Second)); err == nil {
-		t.Fatal("New accepted a negative tolerance")
-	}
+	_, err := New(WithTolerance(-time.Second))
+	require.Error(t, err, "New accepted a negative tolerance")
 }
 
 func TestNewClampsExcessiveTolerance(t *testing.T) {
@@ -207,35 +191,23 @@ func TestNewClampsExcessiveTolerance(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
 
 	v, err := New(WithTolerance(300*time.Second), WithLogger(log))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if v.Tolerance != maxTolerance {
-		t.Fatalf("tolerance = %s, want %s", v.Tolerance, maxTolerance)
-	}
-	if !bytes.Contains(logged.Bytes(), []byte("clamping")) {
-		t.Fatalf("no warning was logged; log was %q", logged.String())
-	}
+	require.NoError(t, err, "New: %v", err)
+	require.Equal(t, maxTolerance, v.Tolerance, "tolerance = %s, want %s", v.Tolerance, maxTolerance)
+	require.Contains(t, logged.String(), "clamping", "no warning was logged; log was %q", logged.String())
 
 	// The clamp has to bite in practice, not just in the field: a request 200
 	// seconds old must still be rejected.
 	body := envelope("IntentRequest", fixedNow.Add(-200*time.Second))
 	v.Now = at(fixedNow)
-	if err := v.Verify(t.Context(), body, signedHeaders()); !errors.Is(err, ErrStaleTimestamp) {
-		t.Fatalf("got %v, want ErrStaleTimestamp", err)
-	}
+	require.ErrorIs(t, v.Verify(t.Context(), body, signedHeaders()), ErrStaleTimestamp)
 }
 
 func TestNewDefaultsTolerance(t *testing.T) {
 	t.Parallel()
 
 	v, err := New()
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if v.Tolerance != defaultTolerance {
-		t.Fatalf("tolerance = %s, want %s", v.Tolerance, defaultTolerance)
-	}
+	require.NoError(t, err, "New: %v", err)
+	require.Equal(t, defaultTolerance, v.Tolerance, "tolerance = %s, want %s", v.Tolerance, defaultTolerance)
 }
 
 // A directly constructed Verifier must not be more permissive than one built
@@ -246,9 +218,7 @@ func TestZeroValueVerifierIsNotPermissive(t *testing.T) {
 
 	v := &Verifier{Now: at(fixedNow)}
 	body := envelope("IntentRequest", fixedNow.Add(-time.Hour))
-	if err := v.Verify(t.Context(), body, signedHeaders()); !errors.Is(err, ErrStaleTimestamp) {
-		t.Fatalf("got %v, want ErrStaleTimestamp", err)
-	}
+	require.ErrorIs(t, v.Verify(t.Context(), body, signedHeaders()), ErrStaleTimestamp)
 }
 
 // The signature gate fails closed when its certificate dependency is
@@ -257,22 +227,14 @@ func TestSignatureGateFailsClosedWhenCertificateFetchFails(t *testing.T) {
 	t.Parallel()
 
 	v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), signedHeaders()); !errors.Is(err, ErrCertFetch) {
-		t.Fatalf("got %v, want ErrCertFetch", err)
-	}
+	require.NoError(t, err, "New: %v", err)
+	require.ErrorIs(t, v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), signedHeaders()), ErrCertFetch)
 }
 
 func TestWarmRejectsAnInvalidSeedURLWithoutFetching(t *testing.T) {
 	t.Parallel()
 
 	v, err := New(WithHTTPClient(failingHTTPClient()))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := v.Warm(context.Background(), "https://very.bad/echo.api/cert"); !errors.Is(err, ErrCertURLInvalid) {
-		t.Fatalf("got %v, want ErrCertURLInvalid", err)
-	}
+	require.NoError(t, err, "New: %v", err)
+	require.ErrorIs(t, v.Warm(context.Background(), "https://very.bad/echo.api/cert"), ErrCertURLInvalid)
 }

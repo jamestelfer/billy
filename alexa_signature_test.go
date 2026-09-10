@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/jamestelfer/billy/pkg/alexaverify"
+	"github.com/stretchr/testify/require"
 )
 
 type handlerRoundTripFunc func(*http.Request) (*http.Response, error)
@@ -44,9 +45,7 @@ func TestAlexaAcceptsAValidSignedRequest(t *testing.T) {
 	t.Cleanup(certificateServer.Close)
 
 	target, err := url.Parse(certificateServer.URL)
-	if err != nil {
-		t.Fatalf("parsing certificate server URL: %v", err)
-	}
+	require.NoError(t, err, "parsing certificate server URL: %v", err)
 	baseTransport := certificateServer.Client().Transport
 	client := *certificateServer.Client()
 	client.Transport = handlerRoundTripFunc(func(request *http.Request) (*http.Response, error) {
@@ -64,17 +63,13 @@ func TestAlexaAcceptsAValidSignedRequest(t *testing.T) {
 		alexaverify.WithClock(func() time.Time { return testNow }),
 		alexaverify.WithHTTPClient(&client),
 	)
-	if err != nil {
-		t.Fatalf("alexaverify.New: %v", err)
-	}
+	require.NoError(t, err, "alexaverify.New: %v", err)
 	store, captureDir := newTestCapture(t)
 
 	body := []byte(sampleLaunchRequest)
 	digest := sha256.Sum256(body)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, leafKey, crypto.SHA256, digest[:])
-	if err != nil {
-		t.Fatalf("signing request: %v", err)
-	}
+	require.NoError(t, err, "signing request: %v", err)
 	headers := map[string]string{
 		"Signature-256":         base64.StdEncoding.EncodeToString(signature),
 		"SignatureCertChainUrl": "https://s3.amazonaws.com/echo.api/echo-api-cert-test.pem",
@@ -82,31 +77,17 @@ func TestAlexaAcceptsAValidSignedRequest(t *testing.T) {
 	}
 
 	recorder := postAlexa(t, newRouter(testLogger(), store, verifier), string(body), headers)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("POST /alexa status = %d, want %d; body = %q",
-			recorder.Code, http.StatusOK, recorder.Body.String())
-	}
-	if got := fetches.Load(); got != 1 {
-		t.Fatalf("certificate fetches = %d, want 1", got)
-	}
+	require.Equal(t, http.StatusOK, recorder.Code, "POST /alexa status = %d, want %d; body = %q", recorder.Code, http.StatusOK, recorder.Body.String())
+	require.EqualValues(t, 1, fetches.Load(), "certificate fetches")
 
 	var response alexaEnvelope
-	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
-		t.Fatalf("decoding Alexa response: %v", err)
-	}
-	if response.Response.OutputSpeech.Text != spokenConfirmation {
-		t.Fatalf("spoken response = %q, want %q",
-			response.Response.OutputSpeech.Text, spokenConfirmation)
-	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response), "decoding Alexa response")
+	require.Equal(t, spokenConfirmation, response.Response.OutputSpeech.Text, "spoken response = %q, want %q", response.Response.OutputSpeech.Text, spokenConfirmation)
 
 	stem := onlyCapturedStem(t, captureDir)
 	captured, err := os.ReadFile(filepath.Join(captureDir, stem+".body"))
-	if err != nil {
-		t.Fatalf("reading captured body: %v", err)
-	}
-	if string(captured) != string(body) {
-		t.Fatalf("captured body differs from the signed wire bytes")
-	}
+	require.NoError(t, err, "reading captured body: %v", err)
+	require.Equal(t, string(body), string(captured), "captured body differs from the signed wire bytes")
 }
 
 func generateHandlerTestChain(t *testing.T, now time.Time) (*x509.CertPool, *rsa.PrivateKey, []byte) {
@@ -126,13 +107,9 @@ func generateHandlerTestChain(t *testing.T, now time.Time) (*x509.CertPool, *rsa
 	rootDER, err := x509.CreateCertificate(
 		rand.Reader, rootTemplate, rootTemplate, rootKey.Public(), rootKey,
 	)
-	if err != nil {
-		t.Fatalf("creating root certificate: %v", err)
-	}
+	require.NoError(t, err, "creating root certificate: %v", err)
 	root, err := x509.ParseCertificate(rootDER)
-	if err != nil {
-		t.Fatalf("parsing root certificate: %v", err)
-	}
+	require.NoError(t, err, "parsing root certificate: %v", err)
 
 	intermediateKey := generateHandlerRSAKey(t, "intermediate")
 	intermediateTemplate := &x509.Certificate{
@@ -148,13 +125,9 @@ func generateHandlerTestChain(t *testing.T, now time.Time) (*x509.CertPool, *rsa
 	intermediateDER, err := x509.CreateCertificate(
 		rand.Reader, intermediateTemplate, root, intermediateKey.Public(), rootKey,
 	)
-	if err != nil {
-		t.Fatalf("creating intermediate certificate: %v", err)
-	}
+	require.NoError(t, err, "creating intermediate certificate: %v", err)
 	intermediate, err := x509.ParseCertificate(intermediateDER)
-	if err != nil {
-		t.Fatalf("parsing intermediate certificate: %v", err)
-	}
+	require.NoError(t, err, "parsing intermediate certificate: %v", err)
 
 	leafKey := generateHandlerRSAKey(t, "leaf")
 	leafTemplate := &x509.Certificate{
@@ -169,9 +142,7 @@ func generateHandlerTestChain(t *testing.T, now time.Time) (*x509.CertPool, *rsa
 	leafDER, err := x509.CreateCertificate(
 		rand.Reader, leafTemplate, intermediate, leafKey.Public(), intermediateKey,
 	)
-	if err != nil {
-		t.Fatalf("creating leaf certificate: %v", err)
-	}
+	require.NoError(t, err, "creating leaf certificate: %v", err)
 
 	roots := x509.NewCertPool()
 	roots.AddCert(root)
@@ -185,8 +156,6 @@ func generateHandlerTestChain(t *testing.T, now time.Time) (*x509.CertPool, *rsa
 func generateHandlerRSAKey(t *testing.T, name string) *rsa.PrivateKey {
 	t.Helper()
 	key, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generating %s key: %v", name, err)
-	}
+	require.NoError(t, err, "generating %s key: %v", name, err)
 	return key
 }

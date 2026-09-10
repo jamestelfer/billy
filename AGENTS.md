@@ -16,6 +16,7 @@ just build     # produces dist/billy
 just start     # run billy in the background, capturing to dist/capture
 just stop      # stop it and wait for the tsnet state lock to be released
 just test      # go test ./...
+just snapshots # regenerate go-snaps golden files for review
 just fmt       # gofmt -w .
 just lint      # golangci-lint run ./...
 just xbuild    # goreleaser snapshot build across the full release matrix
@@ -29,6 +30,28 @@ and never run in CI.
 Funnel URL, as the tsnet listener has no loopback address to poll.
 
 Tool versions (Go, golangci-lint, goreleaser, just, wait4x) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
+
+## Unit tests
+
+- Use `github.com/stretchr/testify/assert` for independent checks and
+  `github.com/stretchr/testify/require` for prerequisites after which the test
+  cannot continue. **All assertions use Testify**: do not call `t.Error`,
+  `t.Errorf`, `t.Fatal`, `t.Fatalf`, `t.Fail`, or `t.FailNow`, and do not build
+  generic hand-written assertion helpers that duplicate Testify.
+- Prefer the semantic Testify assertion (`NoError`, `ErrorIs`, `Equal`,
+  `Contains`, `Len`, and so on) over asserting a precomputed boolean. Remember
+  that `Equal` is type-sensitive; use `EqualValues` only when the production
+  comparison intentionally permits equivalent numeric types.
+- Use `require` only from the test goroutine. Collect worker-goroutine errors
+  and assert them from the test goroutine.
+- Every golden test uses `github.com/gkampitakis/go-snaps/snaps`; do not add
+  ad-hoc `testdata/*.golden` readers or update flags. Use `MatchJSON` for JSON
+  and `MatchSnapshot` for other values. Commit generated `__snapshots__` files,
+  regenerate them with `just snapshots`, and review their diffs rather than
+  editing them by hand.
+- A package containing go-snaps tests must call `snaps.Clean` from its
+  `TestMain` so obsolete snapshots fail the normal test run and can be removed
+  during regeneration.
 
 ## Cross-platform rules
 
@@ -78,6 +101,8 @@ Use Context7 for up-to-date documentation — do not guess at APIs. Query the Co
 | `github.com/urfave/cli/v3` | `/urfave/cli` | **The CLI framework. All command line argument handling uses urfave/cli v3** — never `flag`, never a hand-rolled parser. Note v3 is `cli.Command`, not v2's `cli.App`, so most v2 answers do not transfer |
 | Alexa Skills Kit SDK for Node.js | `/alexa/alexa-skills-kit-sdk-for-nodejs` | One of the two normative sources for request verification; also request/response envelope shapes |
 | GoReleaser | `/goreleaser/goreleaser` | Release/snapshot builds; ldflags inject `main.version`/`commit`/`date` |
+| `github.com/stretchr/testify` | `/stretchr/testify` | All unit-test assertions; use `assert` for independent checks and `require` for prerequisites |
+| `github.com/gkampitakis/go-snaps` | `/gkampitakis/go-snaps` | All golden/snapshot tests; JSON uses `snaps.MatchJSON` |
 
 Not on Context7 — go to the source instead:
 

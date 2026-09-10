@@ -13,7 +13,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gkampitakis/go-snaps/snaps"
 	"github.com/jamestelfer/billy/pkg/alexaverify"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // testNow is the clock the handler tests pin the verifier to, so a fixture
@@ -46,9 +49,7 @@ func newTestCapture(t *testing.T) (*captureStore, string) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "capture")
 	store, err := newCaptureStore(dir)
-	if err != nil {
-		t.Fatalf("newCaptureStore() error = %v", err)
-	}
+	require.NoError(t, err, "newCaptureStore() error = %v", err)
 	return store, dir
 }
 
@@ -81,30 +82,22 @@ func captureVerifiedRequest(t *testing.T, store *captureStore, body string, head
 func onlyCapturedStem(t *testing.T, dir string) string {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("reading the capture directory: %v", err)
-	}
+	require.NoError(t, err, "reading the capture directory: %v", err)
 	var stems []string
 	for _, e := range entries {
 		if stem, ok := strings.CutSuffix(e.Name(), ".body"); ok {
 			stems = append(stems, stem)
 		}
 	}
-	if len(stems) != 1 {
-		t.Fatalf("capture directory holds %d body files, want exactly 1", len(stems))
-	}
+	require.Len(t, stems, 1, "capture directory holds %d body files, want exactly 1", len(stems))
 	return stems[0]
 }
 
 func assertCaptureDirEmpty(t *testing.T, dir string) {
 	t.Helper()
 	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("reading the capture directory: %v", err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("capture directory holds %d files, want 0", len(entries))
-	}
+	require.NoError(t, err, "reading the capture directory: %v", err)
+	require.Empty(t, entries, "capture directory holds %d files, want 0", len(entries))
 }
 
 // R10: the response must be a structurally valid Alexa envelope.
@@ -113,38 +106,10 @@ func TestAlexaRespondsWithAValidEnvelope(t *testing.T) {
 
 	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	if ct := rec.Header().Get("Content-Type"); !strings.HasPrefix(ct, "application/json") {
-		t.Errorf("Content-Type = %q, want application/json", ct)
-	}
+	require.Equal(t, http.StatusOK, rec.Code, "status = %d, want %d", rec.Code, http.StatusOK)
+	assert.Regexp(t, `^application/json(;|$)`, rec.Header().Get("Content-Type"))
 
-	var envelope struct {
-		Version  string `json:"version"`
-		Response struct {
-			OutputSpeech struct {
-				Type string `json:"type"`
-				Text string `json:"text"`
-			} `json:"outputSpeech"`
-			ShouldEndSession bool `json:"shouldEndSession"`
-		} `json:"response"`
-	}
-	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("response is not valid JSON: %v (body: %s)", err, rec.Body.String())
-	}
-	if envelope.Version != "1.0" {
-		t.Errorf("version = %q, want %q", envelope.Version, "1.0")
-	}
-	if envelope.Response.OutputSpeech.Type != "PlainText" {
-		t.Errorf("outputSpeech.type = %q, want %q", envelope.Response.OutputSpeech.Type, "PlainText")
-	}
-	if envelope.Response.OutputSpeech.Text == "" {
-		t.Error("outputSpeech.text is empty; the Echo would say nothing")
-	}
-	if !envelope.Response.ShouldEndSession {
-		t.Error("shouldEndSession = false, want true")
-	}
+	snaps.MatchJSON(t, rec.Body.Bytes())
 }
 
 // R8: the exact bytes Alexa sent land on disk.
@@ -155,12 +120,10 @@ func TestAlexaPersistsTheBodyByteForByte(t *testing.T) {
 
 	stem := onlyCapturedStem(t, dir)
 	body, err := os.ReadFile(filepath.Join(dir, stem+".body"))
-	if err != nil {
-		t.Fatalf("reading the captured body: %v", err)
-	}
-	if string(body) != sampleLaunchRequest {
-		t.Errorf("captured body = %q, want %q", body, sampleLaunchRequest)
-	}
+	require.NoError(t, err, "reading the captured body: %v", err)
+	// JSON equivalence is insufficient here: the signature covers these exact wire bytes.
+	//nolint:testifylint // JSONEq would hide whitespace or encoding changes.
+	assert.Equal(t, []byte(sampleLaunchRequest), body, "captured body = %q, want %q", body, sampleLaunchRequest)
 }
 
 // R9: the sidecar records the signature headers and the request context. The
@@ -173,33 +136,17 @@ func TestAlexaPersistsRequestMetadata(t *testing.T) {
 	stem := onlyCapturedStem(t, dir)
 	_, meta := readCapturePair(t, dir, stem)
 
-	if meta["method"] != http.MethodPost {
-		t.Errorf("method = %v, want %v", meta["method"], http.MethodPost)
-	}
-	if meta["request_uri"] != "/alexa" {
-		t.Errorf("request_uri = %v, want /alexa", meta["request_uri"])
-	}
-	if meta["received_at"] == nil || meta["received_at"] == "" {
-		t.Error("received_at is missing")
-	}
-	if meta["remote_addr"] == nil || meta["remote_addr"] == "" {
-		t.Error("remote_addr is missing")
-	}
-	if meta["proto"] == nil || meta["proto"] == "" {
-		t.Error("proto is missing")
-	}
-	if got := meta["body_length"]; got != float64(len(sampleLaunchRequest)) {
-		t.Errorf("body_length = %v, want %d", got, len(sampleLaunchRequest))
-	}
+	assert.Equal(t, http.MethodPost, meta["method"], "method = %v, want %v", meta["method"], http.MethodPost)
+	assert.Equal(t, "/alexa", meta["request_uri"], "request_uri = %v, want /alexa", meta["request_uri"])
+	assert.NotEmpty(t, meta["received_at"], "received_at is missing")
+	assert.NotEmpty(t, meta["remote_addr"], "remote_addr is missing")
+	assert.NotEmpty(t, meta["proto"], "proto is missing")
+	assert.EqualValues(t, len(sampleLaunchRequest), meta["body_length"], "body_length")
 
-	recorded, ok := meta["headers"].(map[string]any)
-	if !ok {
-		t.Fatalf("headers = %v, want an object", meta["headers"])
-	}
+	require.IsType(t, map[string]any{}, meta["headers"])
+	recorded := meta["headers"].(map[string]any)
 	for _, name := range []string{"Signature-256", "Signaturecertchainurl", "Content-Type"} {
-		if _, present := recorded[name]; !present {
-			t.Errorf("headers is missing %q; got keys %v", name, keysOf(recorded))
-		}
+		assert.Contains(t, recorded, name, "headers is missing %q; got keys %v", name, keysOf(recorded))
 	}
 }
 
@@ -221,25 +168,15 @@ func keysOf(m map[string]any) []string {
 func TestAlexaStillRespondsWhenCaptureFails(t *testing.T) {
 	store, dir := newTestCapture(t)
 
-	if err := os.RemoveAll(dir); err != nil {
-		t.Fatalf("removing the capture directory: %v", err)
-	}
-	if err := os.WriteFile(dir, []byte("not a directory"), 0o600); err != nil {
-		t.Fatalf("blocking the capture directory: %v", err)
-	}
+	require.NoError(t, os.RemoveAll(dir), "removing the capture directory")
+	require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o600), "blocking the capture directory")
 
 	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d even though the capture failed", rec.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, rec.Code, "status = %d, want %d even though the capture failed", rec.Code, http.StatusOK)
 	var envelope map[string]any
-	if err := json.Unmarshal(rec.Body.Bytes(), &envelope); err != nil {
-		t.Fatalf("response is not valid JSON: %v", err)
-	}
-	if envelope["version"] != "1.0" {
-		t.Errorf("version = %v, want 1.0", envelope["version"])
-	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope), "response is not valid JSON")
+	assert.Equal(t, "1.0", envelope["version"], "version = %v, want 1.0", envelope["version"])
 }
 
 // R14/R21: a request with no verification headers is refused with 400, and
@@ -252,9 +189,7 @@ func TestAlexaRejectsAMissingSignatureHeader(t *testing.T) {
 
 	rec := postAlexa(t, newTestRouter(t, store), sampleLaunchRequest, headers)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
+	require.Equal(t, http.StatusBadRequest, rec.Code, "POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
 	assertCaptureDirEmpty(t, dir)
 }
 
@@ -266,9 +201,7 @@ func TestAlexaRejectsAMissingCertChainURLHeader(t *testing.T) {
 
 	rec := postAlexa(t, newTestRouter(t, store), sampleLaunchRequest, headers)
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
+	require.Equal(t, http.StatusBadRequest, rec.Code, "POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
 	assertCaptureDirEmpty(t, dir)
 }
 
@@ -287,9 +220,7 @@ func TestAlexaRejectsATimestampOutsideTolerance(t *testing.T) {
 			body := launchRequestAt(testNow.Add(offset))
 			rec := postAlexa(t, newTestRouter(t, store), body, signatureHeaders())
 
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
-			}
+			require.Equal(t, http.StatusBadRequest, rec.Code, "POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
 			assertCaptureDirEmpty(t, dir)
 		})
 	}
@@ -302,9 +233,7 @@ func TestAlexaFailsClosedForAFreshUnsignedRequest(t *testing.T) {
 
 	rec := postAlexa(t, newTestRouter(t, store), sampleLaunchRequest, signatureHeaders())
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
+	require.Equal(t, http.StatusBadRequest, rec.Code, "POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
 	assertCaptureDirEmpty(t, dir)
 }
 
@@ -320,13 +249,8 @@ func TestAlexaRejectionsAreIndistinguishableToTheCaller(t *testing.T) {
 	missing := postAlexa(t, router, sampleLaunchRequest, noHeaders)
 	stale := postAlexa(t, router, launchRequestAt(testNow.Add(-time.Hour)), signatureHeaders())
 
-	if missing.Code != stale.Code {
-		t.Errorf("statuses differ: missing header %d, stale timestamp %d", missing.Code, stale.Code)
-	}
-	if missing.Body.String() != stale.Body.String() {
-		t.Errorf("bodies differ:\n missing header: %q\n stale timestamp: %q",
-			missing.Body.String(), stale.Body.String())
-	}
+	assert.Equal(t, stale.Code, missing.Code, "statuses differ: missing header %d, stale timestamp %d", missing.Code, stale.Code)
+	assert.Equal(t, stale.Body.String(), missing.Body.String(), "bodies differ:\n missing header: %q\n stale timestamp: %q", missing.Body.String(), stale.Body.String())
 }
 
 // The endpoint is public, so an unbounded read is a memory-exhaustion vector.
@@ -338,9 +262,7 @@ func TestAlexaRejectsAnOversizedBodyAndCapturesNothing(t *testing.T) {
 	oversized := "{\"pad\":\"" + strings.Repeat("x", maxBodyBytes) + "\"}"
 	rec := postAlexa(t, newTestRouter(t, store), oversized, signatureHeaders())
 
-	if rec.Code != http.StatusBadRequest {
-		t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
-	}
+	require.Equal(t, http.StatusBadRequest, rec.Code, "POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
 	assertCaptureDirEmpty(t, dir)
 }
 
@@ -355,9 +277,7 @@ func TestHealthzStillAnswersAlongsideAlexa(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 	router.ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Errorf("GET /healthz status = %d, want %d", rec.Code, http.StatusOK)
-	}
+	assert.Equal(t, http.StatusOK, rec.Code, "GET /healthz status = %d, want %d", rec.Code, http.StatusOK)
 }
 
 // R22: Alexa only ever POSTs. Anything else is a probe: it gets a 405 from the
@@ -371,9 +291,7 @@ func TestNonPostAlexaIsRejectedAndCapturesNothing(t *testing.T) {
 			req := httptest.NewRequestWithContext(t.Context(), method, "/alexa", nil)
 			newTestRouter(t, store).ServeHTTP(rec, req)
 
-			if rec.Code != http.StatusMethodNotAllowed {
-				t.Errorf("%s /alexa status = %d, want %d", method, rec.Code, http.StatusMethodNotAllowed)
-			}
+			assert.Equal(t, http.StatusMethodNotAllowed, rec.Code, "%s /alexa status = %d, want %d", method, rec.Code, http.StatusMethodNotAllowed)
 			assertCaptureDirEmpty(t, dir)
 		})
 	}
@@ -388,9 +306,7 @@ func TestVerificationIsNotAppliedToHealthz(t *testing.T) {
 	req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 	newTestRouter(t, store).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want %d with no signature headers", rec.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, rec.Code, "GET /healthz status = %d, want %d with no signature headers", rec.Code, http.StatusOK)
 }
 
 // R18/R19: the two rejections where this service is stricter than both
@@ -432,15 +348,9 @@ func TestAlexaLogsHostileCertChainURLsDistinctly(t *testing.T) {
 
 			rec := postAlexa(t, router, sampleLaunchRequest, headers)
 
-			if rec.Code != http.StatusBadRequest {
-				t.Fatalf("POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
-			}
-			if !strings.Contains(logged.String(), tc.wantIn) {
-				t.Errorf("log does not mention %q; log was:\n%s", tc.wantIn, logged.String())
-			}
-			if !strings.Contains(logged.String(), "cert_chain_url") {
-				t.Errorf("log does not carry the offending URL; log was:\n%s", logged.String())
-			}
+			require.Equal(t, http.StatusBadRequest, rec.Code, "POST /alexa status = %d, want %d", rec.Code, http.StatusBadRequest)
+			assert.Contains(t, logged.String(), tc.wantIn, "log does not mention %q; log was:\n%s", tc.wantIn, logged.String())
+			assert.Contains(t, logged.String(), "cert_chain_url", "log does not carry the offending URL; log was:\n%s", logged.String())
 			assertCaptureDirEmpty(t, dir)
 		})
 	}
@@ -461,15 +371,9 @@ func TestAlexaStillLogsAMissingHeaderDistinctlyFromABadURL(t *testing.T) {
 	badHeaders["SignatureCertChainUrl"] = "https://very.bad/echo.api/cert"
 	postAlexa(t, newTestRouterWithLog(t, store, &badURLLog), sampleLaunchRequest, badHeaders)
 
-	if !strings.Contains(missingLog.String(), "missing verification header") {
-		t.Errorf("a missing header was not logged as one; log was:\n%s", missingLog.String())
-	}
-	if strings.Contains(missingLog.String(), "certificate chain URL") {
-		t.Errorf("a missing header was logged as a URL failure; log was:\n%s", missingLog.String())
-	}
-	if !strings.Contains(badURLLog.String(), "invalid certificate chain URL") {
-		t.Errorf("a bad URL was not logged as one; log was:\n%s", badURLLog.String())
-	}
+	assert.Contains(t, missingLog.String(), "missing verification header", "a missing header was not logged as one; log was:\n%s", missingLog.String())
+	assert.NotContains(t, missingLog.String(), "certificate chain URL", "a missing header was logged as a URL failure; log was:\n%s", missingLog.String())
+	assert.Contains(t, badURLLog.String(), "invalid certificate chain URL", "a bad URL was not logged as one; log was:\n%s", badURLLog.String())
 }
 
 // R14: the cert URL is checked only after the timestamp. A stale request with
@@ -485,12 +389,8 @@ func TestAlexaChecksTheTimestampBeforeTheCertChainURL(t *testing.T) {
 	postAlexa(t, newTestRouterWithLog(t, store, &logged),
 		launchRequestAt(testNow.Add(-time.Hour)), headers)
 
-	if !strings.Contains(logged.String(), "timestamp outside tolerance") {
-		t.Errorf("a stale request was not rejected on freshness first; log was:\n%s", logged.String())
-	}
-	if strings.Contains(logged.String(), "certificate chain URL") {
-		t.Errorf("the cert URL was inspected before the timestamp gate closed; log was:\n%s", logged.String())
-	}
+	assert.Contains(t, logged.String(), "timestamp outside tolerance", "a stale request was not rejected on freshness first; log was:\n%s", logged.String())
+	assert.NotContains(t, logged.String(), "certificate chain URL", "the cert URL was inspected before the timestamp gate closed; log was:\n%s", logged.String())
 }
 
 // newTestRouter builds the production router with the verifier's clock pinned
@@ -514,8 +414,6 @@ func newTestRouterWithLog(t *testing.T, store *captureStore, out io.Writer) http
 		alexaverify.WithHTTPClient(client),
 		alexaverify.WithLogger(log),
 	)
-	if err != nil {
-		t.Fatalf("alexaverify.New() error = %v", err)
-	}
+	require.NoError(t, err, "alexaverify.New() error = %v", err)
 	return newRouter(log, store, verifier)
 }

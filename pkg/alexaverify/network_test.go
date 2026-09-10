@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 const networkCaptureBodyEnv = "BILLY_ALEXA_CAPTURE_BODY"
@@ -23,41 +25,25 @@ func TestRealCapturedRequest(t *testing.T) {
 	if bodyPath == "" {
 		t.Skipf("set %s to an out-of-tree capture", networkCaptureBodyEnv)
 	}
-	if !strings.HasSuffix(bodyPath, ".body") {
-		t.Fatalf("%s must name a .body file", networkCaptureBodyEnv)
-	}
+	require.Regexp(t, `\.body$`, bodyPath, "%s must name a .body file", networkCaptureBodyEnv)
 
 	body, err := os.ReadFile(bodyPath)
-	if err != nil {
-		t.Fatalf("reading capture body: %v", err)
-	}
+	require.NoError(t, err, "reading capture body: %v", err)
 	sidecar, err := os.ReadFile(strings.TrimSuffix(bodyPath, ".body") + ".json")
-	if err != nil {
-		t.Fatalf("reading capture sidecar: %v", err)
-	}
+	require.NoError(t, err, "reading capture sidecar: %v", err)
 	var metadata struct {
 		Headers http.Header `json:"headers"`
 	}
-	if err := json.Unmarshal(sidecar, &metadata); err != nil {
-		t.Fatalf("decoding capture sidecar: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(sidecar, &metadata), "decoding capture sidecar")
 	var envelope struct {
 		Request struct {
 			Timestamp time.Time `json:"timestamp"`
 		} `json:"request"`
 	}
-	if err := json.Unmarshal(body, &envelope); err != nil {
-		t.Fatalf("decoding capture timestamp: %v", err)
-	}
-	if envelope.Request.Timestamp.IsZero() {
-		t.Fatal("capture has no request timestamp")
-	}
+	require.NoError(t, json.Unmarshal(body, &envelope), "decoding capture timestamp")
+	require.NotZero(t, envelope.Request.Timestamp, "capture has no request timestamp")
 
 	verifier, err := New(WithClock(at(envelope.Request.Timestamp)))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
-	if err := verifier.Verify(t.Context(), body, metadata.Headers); err != nil {
-		t.Fatalf("Verify live capture: %v", err)
-	}
+	require.NoError(t, err, "New: %v", err)
+	require.NoError(t, verifier.Verify(t.Context(), body, metadata.Headers), "Verify live capture")
 }
