@@ -10,6 +10,8 @@ import (
 	"math/big"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 // testPKI is generated at test time rather than committed. The intermediate is
@@ -38,9 +40,7 @@ func generateTestPKI(t *testing.T, now time.Time) *testPKI {
 	t.Helper()
 
 	rootKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generating root key: %v", err)
-	}
+	require.NoError(t, err, "generating root key: %v", err)
 	rootTemplate := &x509.Certificate{
 		SerialNumber:          big.NewInt(1),
 		Subject:               pkix.Name{CommonName: "alexaverify test root"},
@@ -52,18 +52,12 @@ func generateTestPKI(t *testing.T, now time.Time) *testPKI {
 		MaxPathLen:            1,
 	}
 	rootDER, err := x509.CreateCertificate(rand.Reader, rootTemplate, rootTemplate, rootKey.Public(), rootKey)
-	if err != nil {
-		t.Fatalf("creating root certificate: %v", err)
-	}
+	require.NoError(t, err, "creating root certificate: %v", err)
 	root, err := x509.ParseCertificate(rootDER)
-	if err != nil {
-		t.Fatalf("parsing root certificate: %v", err)
-	}
+	require.NoError(t, err, "parsing root certificate: %v", err)
 
 	intermediateKey, err := rsa.GenerateKey(rand.Reader, 2048)
-	if err != nil {
-		t.Fatalf("generating intermediate key: %v", err)
-	}
+	require.NoError(t, err, "generating intermediate key: %v", err)
 	intermediateTemplate := &x509.Certificate{
 		SerialNumber:          big.NewInt(2),
 		Subject:               pkix.Name{CommonName: "alexaverify test intermediate"},
@@ -77,13 +71,9 @@ func generateTestPKI(t *testing.T, now time.Time) *testPKI {
 	intermediateDER, err := x509.CreateCertificate(
 		rand.Reader, intermediateTemplate, root, intermediateKey.Public(), rootKey,
 	)
-	if err != nil {
-		t.Fatalf("creating intermediate certificate: %v", err)
-	}
+	require.NoError(t, err, "creating intermediate certificate: %v", err)
 	intermediate, err := x509.ParseCertificate(intermediateDER)
-	if err != nil {
-		t.Fatalf("parsing intermediate certificate: %v", err)
-	}
+	require.NoError(t, err, "parsing intermediate certificate: %v", err)
 
 	roots := x509.NewCertPool()
 	roots.AddCert(root)
@@ -100,9 +90,7 @@ func (pki *testPKI) issueLeaf(t *testing.T, spec leafSpec) testLeaf {
 	key := spec.key
 	if key == nil {
 		generated, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			t.Fatalf("generating leaf key: %v", err)
-		}
+		require.NoError(t, err, "generating leaf key: %v", err)
 		key = generated
 	}
 
@@ -118,13 +106,9 @@ func (pki *testPKI) issueLeaf(t *testing.T, spec leafSpec) testLeaf {
 	der, err := x509.CreateCertificate(
 		rand.Reader, template, pki.intermediate, key.Public(), pki.intermediateKey,
 	)
-	if err != nil {
-		t.Fatalf("creating leaf certificate: %v", err)
-	}
+	require.NoError(t, err, "creating leaf certificate: %v", err)
 	certificate, err := x509.ParseCertificate(der)
-	if err != nil {
-		t.Fatalf("parsing leaf certificate: %v", err)
-	}
+	require.NoError(t, err, "parsing leaf certificate: %v", err)
 
 	bundle := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
 	bundle = append(bundle, pem.EncodeToMemory(&pem.Block{

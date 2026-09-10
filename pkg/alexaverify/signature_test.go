@@ -19,6 +19,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 const testCertURL = "https://s3.amazonaws.com/echo.api/echo-api-cert-test.pem"
@@ -27,14 +29,10 @@ func signBody(t *testing.T, key crypto.Signer, body []byte) string {
 	t.Helper()
 
 	rsaKey, ok := key.(*rsa.PrivateKey)
-	if !ok {
-		t.Fatalf("signBody key is %T, want *rsa.PrivateKey", key)
-	}
+	require.True(t, ok, "signBody key is %T, want *rsa.PrivateKey", key)
 	digest := sha256.Sum256(body)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, rsaKey, crypto.SHA256, digest[:])
-	if err != nil {
-		t.Fatalf("signing body: %v", err)
-	}
+	require.NoError(t, err, "signing body: %v", err)
 	return base64.StdEncoding.EncodeToString(signature)
 }
 
@@ -49,9 +47,7 @@ func rewriteClient(t *testing.T, server *httptest.Server) (*http.Client, *atomic
 	t.Helper()
 
 	target, err := url.Parse(server.URL)
-	if err != nil {
-		t.Fatalf("parsing test server URL: %v", err)
-	}
+	require.NoError(t, err, "parsing test server URL: %v", err)
 	calls := &atomic.Int64{}
 	base := server.Client().Transport
 	client := *server.Client()
@@ -75,9 +71,7 @@ func verifierServing(t *testing.T, roots *x509.CertPool, now time.Time, handler 
 	t.Cleanup(server.Close)
 	client, calls := rewriteClient(t, server)
 	verifier, err := New(WithRoots(roots), WithClock(at(now)), WithHTTPClient(client))
-	if err != nil {
-		t.Fatalf("New: %v", err)
-	}
+	require.NoError(t, err, "New: %v", err)
 	return verifier, calls
 }
 
@@ -92,9 +86,7 @@ func verifierServingBundle(t *testing.T, roots *x509.CertPool, now time.Time, bu
 func assertOnlySentinel(t *testing.T, err, want error) {
 	t.Helper()
 
-	if !errors.Is(err, want) {
-		t.Fatalf("got %v, want %v", err, want)
-	}
+	require.ErrorIs(t, err, want, "got %v, want %v", err, want)
 	sentinels := []error{
 		ErrMissingHeader,
 		ErrCertURLInvalid,
@@ -113,9 +105,7 @@ func assertOnlySentinel(t *testing.T, err, want error) {
 			matches++
 		}
 	}
-	if matches != 1 {
-		t.Fatalf("error %v wraps %d sentinels, want exactly one", err, matches)
-	}
+	require.Equal(t, 1, matches, "error %v wraps %d sentinels, want exactly one", err, matches)
 }
 
 func TestVerifySignatureAndCertificateChain(t *testing.T) {
@@ -126,11 +116,13 @@ func TestVerifySignatureAndCertificateChain(t *testing.T) {
 
 	t.Run("valid three certificate path and signature", func(t *testing.T) {
 		verifier, calls := verifierServingBundle(t, pki.roots, fixedNow, validLeaf.bundle)
-		if err := verifier.Verify(t.Context(), body, headersFor(validSignature)); err != nil {
-			t.Fatalf("Verify: %v", err)
+		{
+			err := verifier.Verify(t.Context(), body, headersFor(validSignature))
+			require.NoError(t, err, "Verify: %v", err)
 		}
-		if got := calls.Load(); got != 1 {
-			t.Fatalf("certificate fetches = %d, want 1", got)
+		{
+			got := calls.Load()
+			require.EqualValues(t, 1, got, "certificate fetches = %d, want 1", got)
 		}
 	})
 
@@ -142,9 +134,7 @@ func TestVerifySignatureAndCertificateChain(t *testing.T) {
 
 	t.Run("signature from another key", func(t *testing.T) {
 		otherKey, err := rsa.GenerateKey(rand.Reader, 2048)
-		if err != nil {
-			t.Fatalf("generating other key: %v", err)
-		}
+		require.NoError(t, err, "generating other key: %v", err)
 		verifier, _ := verifierServingBundle(t, pki.roots, fixedNow, validLeaf.bundle)
 		err = verifier.Verify(t.Context(), body, headersFor(signBody(t, otherKey, body)))
 		assertOnlySentinel(t, err, ErrBadSignature)
@@ -212,9 +202,7 @@ func TestVerifySignatureAndCertificateChain(t *testing.T) {
 
 	t.Run("ECDSA leaf key", func(t *testing.T) {
 		ecdsaKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		if err != nil {
-			t.Fatalf("generating ECDSA key: %v", err)
-		}
+		require.NoError(t, err, "generating ECDSA key: %v", err)
 		spec := validLeafSpec(fixedNow)
 		spec.key = ecdsaKey
 		leaf := pki.issueLeaf(t, spec)
@@ -230,9 +218,7 @@ func TestValidateChainUsesTheSystemRootPoolByDefault(t *testing.T) {
 	pki := generateTestPKI(t, fixedNow)
 	leaf := pki.issueLeaf(t, validLeafSpec(fixedNow))
 	chain, err := parsePEMChain(leaf.bundle)
-	if err != nil {
-		t.Fatalf("parsePEMChain: %v", err)
-	}
+	require.NoError(t, err, "parsePEMChain: %v", err)
 
 	// The generated root cannot be in any host's system pool, so failure is
 	// expected. The point is to exercise nil Roots on every CI platform and
@@ -252,8 +238,9 @@ func TestCertificateFetchFailures(t *testing.T) {
 			http.Error(w, "no certificate here", http.StatusNotFound)
 		}))
 		assertOnlySentinel(t, verifier.Verify(t.Context(), body, headers), ErrCertFetch)
-		if got := calls.Load(); got != certificateFetchAttempts {
-			t.Fatalf("attempts = %d, want %d", got, certificateFetchAttempts)
+		{
+			got := calls.Load()
+			require.EqualValues(t, certificateFetchAttempts, got, "attempts = %d, want %d", got, certificateFetchAttempts)
 		}
 	})
 
@@ -266,12 +253,11 @@ func TestCertificateFetchFailures(t *testing.T) {
 		verifier, err := New(
 			WithRoots(pki.roots), WithClock(at(fixedNow)), WithHTTPClient(client),
 		)
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
+		require.NoError(t, err, "New: %v", err)
 		assertOnlySentinel(t, verifier.Verify(t.Context(), body, headers), ErrCertFetch)
-		if got := calls.Load(); got != certificateFetchAttempts {
-			t.Fatalf("attempts = %d, want %d", got, certificateFetchAttempts)
+		{
+			got := calls.Load()
+			require.EqualValues(t, certificateFetchAttempts, got, "attempts = %d, want %d", got, certificateFetchAttempts)
 		}
 	})
 
@@ -299,11 +285,13 @@ func TestCertificateFetchFailures(t *testing.T) {
 			http.Redirect(w, request, "/target", http.StatusFound)
 		}))
 		assertOnlySentinel(t, verifier.Verify(t.Context(), body, headers), ErrCertFetch)
-		if got := calls.Load(); got != certificateFetchAttempts {
-			t.Fatalf("attempts = %d, want %d", got, certificateFetchAttempts)
+		{
+			got := calls.Load()
+			require.EqualValues(t, certificateFetchAttempts, got, "attempts = %d, want %d", got, certificateFetchAttempts)
 		}
-		if got := targetCalls.Load(); got != 0 {
-			t.Fatalf("redirect target requests = %d, want 0", got)
+		{
+			got := targetCalls.Load()
+			require.EqualValues(t, 0, got, "redirect target requests = %d, want 0", got)
 		}
 	})
 
@@ -315,9 +303,7 @@ func TestCertificateFetchFailures(t *testing.T) {
 		verifier, err := New(
 			WithRoots(pki.roots), WithClock(at(fixedNow)), WithHTTPClient(client),
 		)
-		if err != nil {
-			t.Fatalf("New: %v", err)
-		}
+		require.NoError(t, err, "New: %v", err)
 		ctx, cancel := context.WithTimeout(t.Context(), 20*time.Millisecond)
 		defer cancel()
 		assertOnlySentinel(t, verifier.Verify(ctx, body, headers), ErrCertFetch)
@@ -346,17 +332,16 @@ func TestRejectedCertificateURLsNeverFetch(t *testing.T) {
 				return nil, errors.New("unexpected fetch")
 			})}
 			verifier, err := New(WithClock(at(fixedNow)), WithHTTPClient(client))
-			if err != nil {
-				t.Fatalf("New: %v", err)
-			}
+			require.NoError(t, err, "New: %v", err)
 			headers := signedHeaders()
 			headers.Set(certChainURLHeader, tc.value)
 			assertOnlySentinel(t,
 				verifier.Verify(t.Context(), envelope("LaunchRequest", fixedNow), headers),
 				tc.want,
 			)
-			if got := calls.Load(); got != 0 {
-				t.Fatalf("fetches = %d, want zero", got)
+			{
+				got := calls.Load()
+				require.EqualValues(t, 0, got, "fetches = %d, want zero", got)
 			}
 		})
 	}

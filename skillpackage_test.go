@@ -7,6 +7,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // alexa/ is an ASK CLI project: `just skill-deploy` renders it and hands the
@@ -68,27 +71,20 @@ func TestInteractionModelIsValidForTheConsole(t *testing.T) {
 
 	// The console rejects an invocation name that is not lower case, and
 	// speech recognition never produces anything else.
-	if name := language.InvocationName; name != strings.ToLower(name) || strings.TrimSpace(name) == "" {
-		t.Errorf("invocationName = %q, want a non-empty lower-case phrase", name)
+	{
+		name := language.InvocationName
+		assert.False(t, name != strings.ToLower(name) || strings.TrimSpace(name) == "", "invocationName = %q, want a non-empty lower-case phrase", name)
 	}
 
 	for _, intent := range language.Intents {
 		builtin := strings.HasPrefix(intent.Name, "AMAZON.")
 		for _, sample := range intent.Samples {
-			if builtin {
-				t.Errorf("intent %s carries sample %q; built-in intents must have no samples", intent.Name, sample)
-			}
-			if sample != strings.ToLower(sample) {
-				t.Errorf("intent %s sample %q is not lower case", intent.Name, sample)
-			}
-			if strings.ContainsAny(sample, ".,?!;:\"") {
-				t.Errorf("intent %s sample %q contains punctuation the console rejects", intent.Name, sample)
-			}
+			assert.False(t, builtin, "intent %s carries sample %q; built-in intents must have no samples", intent.Name, sample)
+			assert.Equal(t, strings.ToLower(sample), sample, "intent %s sample %q is not lower case", intent.Name, sample)
+			assert.False(t, strings.ContainsAny(sample, ".,?!;:\""), "intent %s sample %q contains punctuation the console rejects", intent.Name, sample)
 			// "alexa ask audiobookshelf to capture this" is spoken as a whole;
 			// the sample covers only the part after the invocation name.
-			if strings.HasPrefix(sample, language.InvocationName) {
-				t.Errorf("intent %s sample %q repeats the invocation name", intent.Name, sample)
-			}
+			assert.False(t, strings.HasPrefix(sample, language.InvocationName), "intent %s sample %q repeats the invocation name", intent.Name, sample)
 		}
 	}
 }
@@ -97,9 +93,7 @@ func TestInteractionModelDeclaresTheRequiredBuiltins(t *testing.T) {
 	names := intentNames(t)
 
 	for _, required := range requiredBuiltinIntents {
-		if !slices.Contains(names, required) {
-			t.Errorf("interaction model is missing %s; got %v", required, names)
-		}
+		assert.True(t, slices.Contains(names, required), "interaction model is missing %s; got %v", required, names)
 	}
 }
 
@@ -115,28 +109,20 @@ func TestInteractionModelHasOneCustomIntentWithSamples(t *testing.T) {
 			continue
 		}
 		custom++
-		if len(intent.Samples) < 2 {
-			t.Errorf("custom intent %s has %d samples, want at least 2", intent.Name, len(intent.Samples))
-		}
+		assert.GreaterOrEqual(t, len(intent.Samples), 2, "custom intent %s has %d samples, want at least 2", intent.Name, len(intent.Samples))
 		// A slot means slot resolution can fail before the request is even
 		// dispatched, which is a way to lose a capture for no benefit.
-		if len(intent.Slots) != 0 {
-			t.Errorf("custom intent %s declares %d slots, want none in this phase", intent.Name, len(intent.Slots))
-		}
+		assert.Empty(t, intent.Slots, "custom intent %s declares %d slots, want none in this phase", intent.Name, len(intent.Slots))
 	}
 
-	if custom != 1 {
-		t.Errorf("model declares %d custom intents, want exactly 1", custom)
-	}
+	assert.Equal(t, 1, custom, "model declares %d custom intents, want exactly 1", custom)
 }
 
 func TestInteractionModelDoesNotAnticipateAudioPlayer(t *testing.T) {
 	names := intentNames(t)
 
 	for _, intent := range audioPlayerIntents {
-		if slices.Contains(names, intent) {
-			t.Errorf("interaction model declares %s; AudioPlayer is a later phase", intent)
-		}
+		assert.False(t, slices.Contains(names, intent), "interaction model declares %s; AudioPlayer is a later phase", intent)
 	}
 }
 
@@ -208,18 +194,11 @@ func TestSkillManifestKeepsTheEndpointOutOfGit(t *testing.T) {
 	manifest := loadSkillManifest(t)
 	endpoint := manifest.Manifest.Apis.Custom.Endpoint
 
-	if endpoint.URI != endpointPlaceholder {
-		t.Errorf("manifest endpoint uri = %q, want the placeholder %q — the real URL is substituted by `just skill-render`",
-			endpoint.URI, endpointPlaceholder)
-	}
+	assert.Equal(t, endpointPlaceholder, endpoint.URI, "manifest endpoint uri = %q, want the placeholder %q — the real URL is substituted by `just skill-render`", endpoint.URI, endpointPlaceholder)
 	// Tailscale provisions a genuine publicly-trusted certificate for the
 	// ts.net name, so neither SelfSigned nor Wildcard applies.
-	if endpoint.SSLCertificateType != "Trusted" {
-		t.Errorf("manifest sslCertificateType = %q, want %q", endpoint.SSLCertificateType, "Trusted")
-	}
-	if manifest.Manifest.Apis.AudioPlayer != nil {
-		t.Error("manifest enables the AudioPlayer interface; that is a later phase")
-	}
+	assert.Equal(t, "Trusted", endpoint.SSLCertificateType, "manifest sslCertificateType = %q, want %q", endpoint.SSLCertificateType, "Trusted")
+	assert.Nil(t, manifest.Manifest.Apis.AudioPlayer, "manifest enables the AudioPlayer interface; that is a later phase")
 }
 
 // Certification requires every example phrase to be a real invocation drawn
@@ -229,28 +208,22 @@ func TestSkillManifestExamplePhrasesMatchTheInteractionModel(t *testing.T) {
 	model := loadInteractionModel(t).InteractionModel.LanguageModel
 	locale := loadSkillManifest(t).Manifest.PublishingInformation.Locales["en-US"]
 
-	if len(locale.ExamplePhrases) != 3 {
-		t.Errorf("en-US examplePhrases has %d entries, want exactly 3", len(locale.ExamplePhrases))
-	}
+	assert.Len(t, locale.ExamplePhrases, 3, "en-US examplePhrases has %d entries, want exactly 3", len(locale.ExamplePhrases))
 	for _, field := range []struct{ name, value string }{
 		{"name", locale.Name},
 		{"summary", locale.Summary},
 		{"description", locale.Description},
 	} {
-		if strings.TrimSpace(field.value) == "" {
-			t.Errorf("en-US %s is empty; the skill package import rejects that", field.name)
-		}
+		assert.NotEmpty(t, strings.TrimSpace(field.value), "en-US %s is empty; the skill package import rejects that", field.name)
 	}
 
 	for _, phrase := range locale.ExamplePhrases {
-		if !strings.HasPrefix(phrase, "Alexa, ") {
-			t.Errorf("example phrase %q does not start with the wake word", phrase)
+		if !assert.True(t, strings.HasPrefix(phrase, "Alexa, "),
+			"example phrase %q does not start with the wake word", phrase) {
 			continue
 		}
 		utterance := strings.TrimPrefix(phrase, "Alexa, ")
-		if !utteranceReachesSkill(utterance, model.InvocationName, customSamples(t)) {
-			t.Errorf("example phrase %q neither launches the skill nor matches a sample utterance", phrase)
-		}
+		assert.True(t, utteranceReachesSkill(utterance, model.InvocationName, customSamples(t)), "example phrase %q neither launches the skill nor matches a sample utterance", phrase)
 	}
 }
 
@@ -260,12 +233,8 @@ func TestDialogCorpusReachesTheSkill(t *testing.T) {
 	var replay dialogReplay
 	readSkillFile(t, filepath.Join("alexa", "dialog", "corpus.json"), &replay)
 
-	if replay.Type != "text" {
-		t.Errorf("corpus type = %q, want %q", replay.Type, "text")
-	}
-	if len(replay.UserInput) == 0 {
-		t.Fatal("corpus has no userInput; there is nothing to replay")
-	}
+	assert.Equal(t, "text", replay.Type, "corpus type = %q, want %q", replay.Type, "text")
+	require.NotEmpty(t, replay.UserInput, "corpus has no userInput; there is nothing to replay")
 
 	model := loadInteractionModel(t).InteractionModel.LanguageModel
 	samples := customSamples(t)
@@ -273,12 +242,8 @@ func TestDialogCorpusReachesTheSkill(t *testing.T) {
 	var launches, intents int
 	for _, utterance := range replay.UserInput {
 		// ask dialog takes what the user says after the wake word.
-		if strings.HasPrefix(strings.ToLower(utterance), "alexa") {
-			t.Errorf("corpus utterance %q includes the wake word; ask dialog does not want it", utterance)
-		}
-		if !strings.Contains(utterance, model.InvocationName) {
-			t.Errorf("corpus utterance %q never names the skill, so Alexa will not route it here", utterance)
-		}
+		assert.False(t, strings.HasPrefix(strings.ToLower(utterance), "alexa"), "corpus utterance %q includes the wake word; ask dialog does not want it", utterance)
+		assert.Contains(t, utterance, model.InvocationName, "corpus utterance %q never names the skill, so Alexa will not route it here", utterance)
 		if utteranceReachesSkill(utterance, model.InvocationName, samples) {
 			if strings.HasSuffix(utterance, model.InvocationName) {
 				launches++
@@ -289,12 +254,8 @@ func TestDialogCorpusReachesTheSkill(t *testing.T) {
 	}
 
 	// setup.md Phase 3 wants at least two distinct envelope shapes.
-	if launches == 0 {
-		t.Error("corpus never just opens the skill, so it captures no LaunchRequest")
-	}
-	if intents == 0 {
-		t.Error("corpus never matches a sample utterance, so it captures no IntentRequest")
-	}
+	assert.NotEqual(t, 0, launches, "corpus never just opens the skill, so it captures no LaunchRequest")
+	assert.NotEqual(t, 0, intents, "corpus never matches a sample utterance, so it captures no IntentRequest")
 }
 
 // utteranceReachesSkill reports whether Alexa would route the utterance to
@@ -345,10 +306,9 @@ func readSkillFile(t *testing.T, path string, into any) {
 	t.Helper()
 
 	raw, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("reading %s: %v", path, err)
-	}
-	if err := json.Unmarshal(raw, into); err != nil {
-		t.Fatalf("parsing %s: %v", path, err)
+	require.NoError(t, err, "reading %s: %v", path, err)
+	{
+		err := json.Unmarshal(raw, into)
+		require.NoError(t, err, "parsing %s: %v", path, err)
 	}
 }

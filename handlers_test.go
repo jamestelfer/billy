@@ -8,6 +8,8 @@ import (
 	"testing"
 
 	"github.com/jamestelfer/billy/pkg/alexaverify"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // R7: /healthz is a liveness probe — 200, no auth, and nothing sensitive in
@@ -19,18 +21,12 @@ func TestHealthzReturns200WithNonSensitiveBody(t *testing.T) {
 
 	newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t)).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want %d", rec.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, rec.Code, "GET /healthz status = %d, want %d", rec.Code, http.StatusOK)
 
 	body := rec.Body.String()
-	if strings.TrimSpace(body) == "" {
-		t.Error("GET /healthz returned an empty body; want a fixed non-empty one")
-	}
+	assert.NotEmpty(t, strings.TrimSpace(body), "GET /healthz returned an empty body; want a fixed non-empty one")
 	for _, secret := range []string{buildVersion(), "ts.net", "/", "\\"} {
-		if strings.Contains(body, secret) {
-			t.Errorf("GET /healthz body %q leaks %q", body, secret)
-		}
+		assert.NotContains(t, body, secret, "GET /healthz body %q leaks %q", body, secret)
 	}
 }
 
@@ -40,9 +36,7 @@ func TestUnknownPathReturns404(t *testing.T) {
 
 	newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t)).ServeHTTP(rec, req)
 
-	if rec.Code != http.StatusNotFound {
-		t.Fatalf("GET /not-a-route status = %d, want %d", rec.Code, http.StatusNotFound)
-	}
+	require.Equal(t, http.StatusNotFound, rec.Code, "GET /not-a-route status = %d, want %d", rec.Code, http.StatusNotFound)
 }
 
 func testLogger() *slog.Logger {
@@ -52,9 +46,7 @@ func testLogger() *slog.Logger {
 func mustCaptureStore(t *testing.T) *captureStore {
 	t.Helper()
 	store, err := newCaptureStore(t.TempDir())
-	if err != nil {
-		t.Fatalf("newCaptureStore() error = %v", err)
-	}
+	require.NoError(t, err, "newCaptureStore() error = %v", err)
 	return store
 }
 
@@ -63,8 +55,6 @@ func mustCaptureStore(t *testing.T) *captureStore {
 func mustVerifier(t *testing.T) *alexaverify.Verifier {
 	t.Helper()
 	verifier, err := alexaverify.New(alexaverify.WithLogger(testLogger()))
-	if err != nil {
-		t.Fatalf("alexaverify.New() error = %v", err)
-	}
+	require.NoError(t, err, "alexaverify.New() error = %v", err)
 	return verifier
 }

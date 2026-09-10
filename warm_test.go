@@ -7,13 +7,13 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/jamestelfer/billy/pkg/alexaverify"
+	"github.com/stretchr/testify/require"
 )
 
 func TestCertificateCacheWarmFailureIsLoggedAndNonFatal(t *testing.T) {
@@ -26,9 +26,7 @@ func TestCertificateCacheWarmFailureIsLoggedAndNonFatal(t *testing.T) {
 		alexaverify.WithClock(func() time.Time { return testNow }),
 		alexaverify.WithHTTPClient(client),
 	)
-	if err != nil {
-		t.Fatalf("alexaverify.New: %v", err)
-	}
+	require.NoError(t, err, "alexaverify.New: %v", err)
 	var logged bytes.Buffer
 	log := slog.New(slog.NewTextHandler(&logged, nil))
 
@@ -39,14 +37,13 @@ func TestCertificateCacheWarmFailureIsLoggedAndNonFatal(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("failed warm did not finish within the fetch bound")
+		require.FailNow(t, "failed warm did not finish within the fetch bound")
 	}
-	if got := calls.Load(); got != 2 {
-		t.Fatalf("warm attempts = %d, want 2", got)
+	{
+		got := calls.Load()
+		require.EqualValues(t, 2, got, "warm attempts = %d, want 2", got)
 	}
-	if !strings.Contains(logged.String(), "continuing") {
-		t.Fatalf("warm failure was not logged as non-fatal; log was:\n%s", logged.String())
-	}
+	require.Contains(t, logged.String(), "continuing", "warm failure was not logged as non-fatal; log was:\n%s", logged.String())
 }
 
 func TestHostileCertificateWarmSeedNeverFetches(t *testing.T) {
@@ -59,9 +56,7 @@ func TestHostileCertificateWarmSeedNeverFetches(t *testing.T) {
 		alexaverify.WithClock(func() time.Time { return testNow }),
 		alexaverify.WithHTTPClient(client),
 	)
-	if err != nil {
-		t.Fatalf("alexaverify.New: %v", err)
-	}
+	require.NoError(t, err, "alexaverify.New: %v", err)
 
 	done := startCertificateCacheWarm(
 		t.Context(), verifier, "https://very.bad/echo.api/cert", testLogger(),
@@ -69,10 +64,11 @@ func TestHostileCertificateWarmSeedNeverFetches(t *testing.T) {
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("hostile seed warm did not finish")
+		require.FailNow(t, "hostile seed warm did not finish")
 	}
-	if got := calls.Load(); got != 0 {
-		t.Fatalf("fetches = %d, want zero for hostile seed", got)
+	{
+		got := calls.Load()
+		require.EqualValues(t, 0, got, "fetches = %d, want zero for hostile seed", got)
 	}
 }
 
@@ -91,9 +87,7 @@ func TestHealthzDoesNotWaitForCertificateWarm(t *testing.T) {
 		alexaverify.WithClock(func() time.Time { return testNow }),
 		alexaverify.WithHTTPClient(client),
 	)
-	if err != nil {
-		t.Fatalf("alexaverify.New: %v", err)
-	}
+	require.NoError(t, err, "alexaverify.New: %v", err)
 
 	done := startCertificateCacheWarm(
 		ctx, verifier, "https://s3.amazonaws.com/echo.api/slow.pem", testLogger(),
@@ -101,21 +95,18 @@ func TestHealthzDoesNotWaitForCertificateWarm(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(time.Second):
-		t.Fatal("warm fetch did not start")
+		require.FailNow(t, "warm fetch did not start")
 	}
 
 	recorder := httptest.NewRecorder()
 	request := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil)
 	handleHealthz(recorder, request)
-	if recorder.Code != http.StatusOK {
-		t.Fatalf("GET /healthz status = %d, want %d while warm is blocked",
-			recorder.Code, http.StatusOK)
-	}
+	require.Equal(t, http.StatusOK, recorder.Code, "GET /healthz status = %d, want %d while warm is blocked", recorder.Code, http.StatusOK)
 
 	cancel()
 	select {
 	case <-done:
 	case <-time.After(time.Second):
-		t.Fatal("warm did not stop after context cancellation")
+		require.FailNow(t, "warm did not stop after context cancellation")
 	}
 }

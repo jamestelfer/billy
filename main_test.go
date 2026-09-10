@@ -2,9 +2,28 @@ package main
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"strings"
 	"testing"
+
+	"github.com/gkampitakis/go-snaps/snaps"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
+
+func TestMain(m *testing.M) {
+	code := m.Run()
+	dirty, err := snaps.Clean(m)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "cleaning snapshots:", err)
+		os.Exit(1)
+	}
+	if dirty {
+		code = 1
+	}
+	os.Exit(code)
+}
 
 // R4: the binary invoked with --version prints a non-empty version string and
 // exits successfully.
@@ -13,15 +32,9 @@ func TestRunVersionFlagPrintsVersionAndSucceeds(t *testing.T) {
 
 	code := run([]string{"billy", "--version"}, &stdout, &stderr)
 
-	if code != 0 {
-		t.Fatalf("run(--version) exit code = %d, want 0 (stderr: %s)", code, stderr.String())
-	}
-	if strings.TrimSpace(stdout.String()) == "" {
-		t.Error("run(--version) printed nothing to stdout")
-	}
-	if !strings.Contains(stdout.String(), buildVersion()) {
-		t.Errorf("run(--version) printed %q, want it to contain %q", stdout.String(), buildVersion())
-	}
+	require.Equal(t, 0, code, "run(--version) exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	assert.NotEmpty(t, strings.TrimSpace(stdout.String()), "run(--version) printed nothing to stdout")
+	assert.Contains(t, stdout.String(), buildVersion(), "run(--version) printed %q, want it to contain %q", stdout.String(), buildVersion())
 }
 
 // --help must not start the service, and must go to stdout so it can be piped.
@@ -30,12 +43,8 @@ func TestRunHelpFlagPrintsUsageAndSucceeds(t *testing.T) {
 
 	code := run([]string{"billy", "--help"}, &stdout, &stderr)
 
-	if code != 0 {
-		t.Fatalf("run(--help) exit code = %d, want 0 (stderr: %s)", code, stderr.String())
-	}
-	if !strings.Contains(stdout.String(), "billy") {
-		t.Errorf("run(--help) stdout = %q, want the command name in it", stdout.String())
-	}
+	require.Equal(t, 0, code, "run(--help) exit code = %d, want 0 (stderr: %s)", code, stderr.String())
+	assert.Contains(t, stdout.String(), "billy", "run(--help) stdout = %q, want the command name in it", stdout.String())
 }
 
 func TestRunUnknownFlagFailsWithDiagnostic(t *testing.T) {
@@ -43,12 +52,8 @@ func TestRunUnknownFlagFailsWithDiagnostic(t *testing.T) {
 
 	code := run([]string{"billy", "--nope"}, &stdout, &stderr)
 
-	if code == 0 {
-		t.Fatal("run(--nope) exit code = 0, want non-zero")
-	}
-	if stderr.Len() == 0 {
-		t.Error("run(--nope) wrote no diagnostic to stderr")
-	}
+	require.NotEqual(t, 0, code, "run(--nope) exit code = 0, want non-zero")
+	assert.NotEqual(t, 0, stderr.Len(), "run(--nope) wrote no diagnostic to stderr")
 }
 
 // A usage mistake is the operator's, not a crash: it gets its own exit code so
@@ -60,8 +65,9 @@ func TestRunUsageErrorsExitWithTheUsageCode(t *testing.T) {
 	} {
 		t.Run(strings.Join(args[1:], " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			if code := run(args, &stdout, &stderr); code != exitUsage {
-				t.Fatalf("run(%q) exit code = %d, want %d", args[1:], code, exitUsage)
+			{
+				code := run(args, &stdout, &stderr)
+				require.Equal(t, exitUsage, code, "run(%q) exit code = %d, want %d", args[1:], code, exitUsage)
 			}
 		})
 	}

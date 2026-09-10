@@ -1,8 +1,10 @@
 package alexaverify
 
 import (
-	"errors"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 // The table below is ported from
@@ -112,25 +114,14 @@ func TestNormalizeCertChainURL(t *testing.T) {
 			got, err := normalizeCertChainURL(tc.in)
 
 			if tc.wantErr != nil {
-				if !errors.Is(err, tc.wantErr) {
-					t.Fatalf("normalizeCertChainURL(%q) error = %v, want %v\n  because: %s",
-						tc.in, err, tc.wantErr, tc.why)
-				}
-				if got != "" {
-					t.Errorf("normalizeCertChainURL(%q) returned %q alongside an error; "+
-						"a rejected URL must yield nothing a caller could fetch", tc.in, got)
-				}
+				require.ErrorIs(t, err, tc.wantErr, "normalizeCertChainURL(%q) error = %v, want %v\n  because: %s", tc.in, err, tc.wantErr, tc.why)
+				assert.Empty(t, got, "normalizeCertChainURL(%q) returned %q alongside an error; "+
+					"a rejected URL must yield nothing a caller could fetch", tc.in, got)
 				return
 			}
 
-			if err != nil {
-				t.Fatalf("normalizeCertChainURL(%q) error = %v, want it accepted\n  because: %s",
-					tc.in, err, tc.why)
-			}
-			if got != tc.want {
-				t.Errorf("normalizeCertChainURL(%q) = %q, want %q\n  because: %s",
-					tc.in, got, tc.want, tc.why)
-			}
+			require.NoError(t, err, "normalizeCertChainURL(%q) error = %v, want it accepted\n  because: %s", tc.in, err, tc.why)
+			assert.Equal(t, tc.want, got, "normalizeCertChainURL(%q) = %q, want %q\n  because: %s", tc.in, got, tc.want, tc.why)
 		})
 	}
 }
@@ -151,16 +142,10 @@ func TestNormalizeCertChainURLIsIdempotent(t *testing.T) {
 
 	for _, in := range spellings {
 		first, err := normalizeCertChainURL(in)
-		if err != nil {
-			t.Fatalf("normalizeCertChainURL(%q) error = %v", in, err)
-		}
+		require.NoError(t, err, "normalizeCertChainURL(%q) error = %v", in, err)
 		second, err := normalizeCertChainURL(first)
-		if err != nil {
-			t.Fatalf("re-normalizing %q error = %v", first, err)
-		}
-		if first != second {
-			t.Errorf("normalizeCertChainURL is not idempotent for %q: %q then %q", in, first, second)
-		}
+		require.NoError(t, err, "re-normalizing %q error = %v", first, err)
+		assert.Equal(t, second, first, "normalizeCertChainURL is not idempotent for %q: %q then %q", in, first, second)
 	}
 }
 
@@ -179,12 +164,8 @@ func TestRiskRegisterErrorsAreDistinctFromTheGenericOne(t *testing.T) {
 
 	for in, want := range cases {
 		_, err := normalizeCertChainURL(in)
-		if !errors.Is(err, want) {
-			t.Fatalf("normalizeCertChainURL(%q) error = %v, want %v", in, err, want)
-		}
-		if errors.Is(err, ErrCertURLInvalid) {
-			t.Errorf("normalizeCertChainURL(%q) also wraps the generic ErrCertURLInvalid, "+
-				"which would hide the divergence in a log search", in)
-		}
+		require.ErrorIs(t, err, want, "normalizeCertChainURL(%q) error = %v, want %v", in, err, want)
+		assert.NotErrorIs(t, err, ErrCertURLInvalid, "normalizeCertChainURL(%q) also wraps the generic ErrCertURLInvalid, "+
+			"which would hide the divergence in a log search", in)
 	}
 }

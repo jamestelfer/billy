@@ -9,6 +9,10 @@ fmt:
 test *args:
     go test ./... {{args}}
 
+# Regenerate go-snaps golden files; always review and commit the diff
+snapshots *args:
+    UPDATE_SNAPS=true go test ./... {{args}}
+
 # Build the binary
 build *args:
     #!/usr/bin/env bash
