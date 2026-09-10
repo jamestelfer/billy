@@ -172,10 +172,7 @@ func TestVerifyUndecodableTimestampIsStale(t *testing.T) {
 			t.Parallel()
 			v, err := New(WithClock(at(fixedNow)))
 			require.NoError(t, err, "New: %v", err)
-			{
-				err := v.Verify(t.Context(), body, signedHeaders())
-				require.ErrorIs(t, err, ErrStaleTimestamp, "got %v, want ErrStaleTimestamp", err)
-			}
+			require.ErrorIs(t, v.Verify(t.Context(), body, signedHeaders()), ErrStaleTimestamp)
 		})
 	}
 }
@@ -183,10 +180,8 @@ func TestVerifyUndecodableTimestampIsStale(t *testing.T) {
 func TestNewRejectsNegativeTolerance(t *testing.T) {
 	t.Parallel()
 
-	{
-		_, err := New(WithTolerance(-time.Second))
-		require.Error(t, err, "New accepted a negative tolerance")
-	}
+	_, err := New(WithTolerance(-time.Second))
+	require.Error(t, err, "New accepted a negative tolerance")
 }
 
 func TestNewClampsExcessiveTolerance(t *testing.T) {
@@ -198,16 +193,13 @@ func TestNewClampsExcessiveTolerance(t *testing.T) {
 	v, err := New(WithTolerance(300*time.Second), WithLogger(log))
 	require.NoError(t, err, "New: %v", err)
 	require.Equal(t, maxTolerance, v.Tolerance, "tolerance = %s, want %s", v.Tolerance, maxTolerance)
-	require.True(t, bytes.Contains(logged.Bytes(), []byte("clamping")), "no warning was logged; log was %q", logged.String())
+	require.Contains(t, logged.String(), "clamping", "no warning was logged; log was %q", logged.String())
 
 	// The clamp has to bite in practice, not just in the field: a request 200
 	// seconds old must still be rejected.
 	body := envelope("IntentRequest", fixedNow.Add(-200*time.Second))
 	v.Now = at(fixedNow)
-	{
-		err := v.Verify(t.Context(), body, signedHeaders())
-		require.ErrorIs(t, err, ErrStaleTimestamp, "got %v, want ErrStaleTimestamp", err)
-	}
+	require.ErrorIs(t, v.Verify(t.Context(), body, signedHeaders()), ErrStaleTimestamp)
 }
 
 func TestNewDefaultsTolerance(t *testing.T) {
@@ -226,10 +218,7 @@ func TestZeroValueVerifierIsNotPermissive(t *testing.T) {
 
 	v := &Verifier{Now: at(fixedNow)}
 	body := envelope("IntentRequest", fixedNow.Add(-time.Hour))
-	{
-		err := v.Verify(t.Context(), body, signedHeaders())
-		require.ErrorIs(t, err, ErrStaleTimestamp, "got %v, want ErrStaleTimestamp", err)
-	}
+	require.ErrorIs(t, v.Verify(t.Context(), body, signedHeaders()), ErrStaleTimestamp)
 }
 
 // The signature gate fails closed when its certificate dependency is
@@ -239,10 +228,7 @@ func TestSignatureGateFailsClosedWhenCertificateFetchFails(t *testing.T) {
 
 	v, err := New(WithClock(at(fixedNow)), WithHTTPClient(failingHTTPClient()))
 	require.NoError(t, err, "New: %v", err)
-	{
-		err := v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), signedHeaders())
-		require.ErrorIs(t, err, ErrCertFetch, "got %v, want ErrCertFetch", err)
-	}
+	require.ErrorIs(t, v.Verify(t.Context(), envelope("LaunchRequest", fixedNow), signedHeaders()), ErrCertFetch)
 }
 
 func TestWarmRejectsAnInvalidSeedURLWithoutFetching(t *testing.T) {
@@ -250,8 +236,5 @@ func TestWarmRejectsAnInvalidSeedURLWithoutFetching(t *testing.T) {
 
 	v, err := New(WithHTTPClient(failingHTTPClient()))
 	require.NoError(t, err, "New: %v", err)
-	{
-		err := v.Warm(context.Background(), "https://very.bad/echo.api/cert")
-		require.ErrorIs(t, err, ErrCertURLInvalid, "got %v, want ErrCertURLInvalid", err)
-	}
+	require.ErrorIs(t, v.Warm(context.Background(), "https://very.bad/echo.api/cert"), ErrCertURLInvalid)
 }

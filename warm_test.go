@@ -39,10 +39,7 @@ func TestCertificateCacheWarmFailureIsLoggedAndNonFatal(t *testing.T) {
 	case <-time.After(time.Second):
 		require.FailNow(t, "failed warm did not finish within the fetch bound")
 	}
-	{
-		got := calls.Load()
-		require.EqualValues(t, 2, got, "warm attempts = %d, want 2", got)
-	}
+	require.EqualValues(t, 2, calls.Load(), "warm attempts")
 	require.Contains(t, logged.String(), "continuing", "warm failure was not logged as non-fatal; log was:\n%s", logged.String())
 }
 
@@ -66,10 +63,7 @@ func TestHostileCertificateWarmSeedNeverFetches(t *testing.T) {
 	case <-time.After(time.Second):
 		require.FailNow(t, "hostile seed warm did not finish")
 	}
-	{
-		got := calls.Load()
-		require.EqualValues(t, 0, got, "fetches = %d, want zero for hostile seed", got)
-	}
+	require.EqualValues(t, 0, calls.Load(), "hostile seed must not trigger a fetch")
 }
 
 func TestHealthzDoesNotWaitForCertificateWarm(t *testing.T) {

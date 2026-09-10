@@ -28,8 +28,8 @@ const testCertURL = "https://s3.amazonaws.com/echo.api/echo-api-cert-test.pem"
 func signBody(t *testing.T, key crypto.Signer, body []byte) string {
 	t.Helper()
 
-	rsaKey, ok := key.(*rsa.PrivateKey)
-	require.True(t, ok, "signBody key is %T, want *rsa.PrivateKey", key)
+	require.IsType(t, (*rsa.PrivateKey)(nil), key)
+	rsaKey := key.(*rsa.PrivateKey)
 	digest := sha256.Sum256(body)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, rsaKey, crypto.SHA256, digest[:])
 	require.NoError(t, err, "signing body: %v", err)
@@ -116,14 +116,8 @@ func TestVerifySignatureAndCertificateChain(t *testing.T) {
 
 	t.Run("valid three certificate path and signature", func(t *testing.T) {
 		verifier, calls := verifierServingBundle(t, pki.roots, fixedNow, validLeaf.bundle)
-		{
-			err := verifier.Verify(t.Context(), body, headersFor(validSignature))
-			require.NoError(t, err, "Verify: %v", err)
-		}
-		{
-			got := calls.Load()
-			require.EqualValues(t, 1, got, "certificate fetches = %d, want 1", got)
-		}
+		require.NoError(t, verifier.Verify(t.Context(), body, headersFor(validSignature)))
+		require.EqualValues(t, 1, calls.Load(), "certificate fetches")
 	})
 
 	t.Run("body mutated after signing", func(t *testing.T) {
@@ -238,10 +232,7 @@ func TestCertificateFetchFailures(t *testing.T) {
 			http.Error(w, "no certificate here", http.StatusNotFound)
 		}))
 		assertOnlySentinel(t, verifier.Verify(t.Context(), body, headers), ErrCertFetch)
-		{
-			got := calls.Load()
-			require.EqualValues(t, certificateFetchAttempts, got, "attempts = %d, want %d", got, certificateFetchAttempts)
-		}
+		require.EqualValues(t, certificateFetchAttempts, calls.Load(), "certificate fetch attempts")
 	})
 
 	t.Run("connection error", func(t *testing.T) {
@@ -255,10 +246,7 @@ func TestCertificateFetchFailures(t *testing.T) {
 		)
 		require.NoError(t, err, "New: %v", err)
 		assertOnlySentinel(t, verifier.Verify(t.Context(), body, headers), ErrCertFetch)
-		{
-			got := calls.Load()
-			require.EqualValues(t, certificateFetchAttempts, got, "attempts = %d, want %d", got, certificateFetchAttempts)
-		}
+		require.EqualValues(t, certificateFetchAttempts, calls.Load(), "certificate fetch attempts")
 	})
 
 	t.Run("body over size cap", func(t *testing.T) {
@@ -285,14 +273,8 @@ func TestCertificateFetchFailures(t *testing.T) {
 			http.Redirect(w, request, "/target", http.StatusFound)
 		}))
 		assertOnlySentinel(t, verifier.Verify(t.Context(), body, headers), ErrCertFetch)
-		{
-			got := calls.Load()
-			require.EqualValues(t, certificateFetchAttempts, got, "attempts = %d, want %d", got, certificateFetchAttempts)
-		}
-		{
-			got := targetCalls.Load()
-			require.EqualValues(t, 0, got, "redirect target requests = %d, want 0", got)
-		}
+		require.EqualValues(t, certificateFetchAttempts, calls.Load(), "certificate fetch attempts")
+		require.EqualValues(t, 0, targetCalls.Load(), "redirect target must not be fetched")
 	})
 
 	t.Run("caller deadline bounds attempts", func(t *testing.T) {
@@ -339,10 +321,7 @@ func TestRejectedCertificateURLsNeverFetch(t *testing.T) {
 				verifier.Verify(t.Context(), envelope("LaunchRequest", fixedNow), headers),
 				tc.want,
 			)
-			{
-				got := calls.Load()
-				require.EqualValues(t, 0, got, "fetches = %d, want zero", got)
-			}
+			require.EqualValues(t, 0, calls.Load(), "rejected URL must not trigger a fetch")
 		})
 	}
 }

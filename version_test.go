@@ -13,10 +13,7 @@ func TestBuildVersionIsNeverEmpty(t *testing.T) {
 	t.Cleanup(restoreBuildVars(version, commit, date))
 	version, commit, date = "", "", ""
 
-	{
-		got := buildVersion()
-		require.NotEmpty(t, got, "buildVersion() returned an empty string with no build vars set")
-	}
+	require.NotEmpty(t, buildVersion(), "buildVersion() returned an empty string with no build vars set")
 }
 
 func TestBuildVersionReportsInjectedBuildMetadata(t *testing.T) {

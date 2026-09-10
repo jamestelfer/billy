@@ -78,16 +78,10 @@ func TestAlexaAcceptsAValidSignedRequest(t *testing.T) {
 
 	recorder := postAlexa(t, newRouter(testLogger(), store, verifier), string(body), headers)
 	require.Equal(t, http.StatusOK, recorder.Code, "POST /alexa status = %d, want %d; body = %q", recorder.Code, http.StatusOK, recorder.Body.String())
-	{
-		got := fetches.Load()
-		require.EqualValues(t, 1, got, "certificate fetches = %d, want 1", got)
-	}
+	require.EqualValues(t, 1, fetches.Load(), "certificate fetches")
 
 	var response alexaEnvelope
-	{
-		err := json.Unmarshal(recorder.Body.Bytes(), &response)
-		require.NoError(t, err, "decoding Alexa response: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response), "decoding Alexa response")
 	require.Equal(t, spokenConfirmation, response.Response.OutputSpeech.Text, "spoken response = %q, want %q", response.Response.OutputSpeech.Text, spokenConfirmation)
 
 	stem := onlyCapturedStem(t, captureDir)

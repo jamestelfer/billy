@@ -20,10 +20,7 @@ func readCapturePair(t *testing.T, dir, stem string) ([]byte, map[string]any) {
 	raw, err := os.ReadFile(filepath.Join(dir, stem+".json"))
 	require.NoError(t, err, "reading the sidecar: %v", err)
 	var meta map[string]any
-	{
-		err := json.Unmarshal(raw, &meta)
-		require.NoError(t, err, "sidecar is not valid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(raw, &meta), "sidecar is not valid JSON")
 	return body, meta
 }
 
@@ -58,13 +55,13 @@ func TestSaveUsesFilenamesLegalOnWindows(t *testing.T) {
 	stem, err := store.Save(captureMetadata{ReceivedAt: time.Now().UTC()}, []byte("{}"))
 	require.NoError(t, err, "Save() error = %v", err)
 
-	assert.False(t, strings.ContainsAny(stem, `<>:"/\|?*`), "stem %q contains a character Windows rejects", stem)
-	assert.False(t, strings.HasSuffix(stem, ".") || strings.HasSuffix(stem, " "), "stem %q ends with a dot or space, which Windows rejects", stem)
+	assert.NotRegexp(t, `[<>:"/\\|?*]`, stem, "stem %q contains a character Windows rejects", stem)
+	assert.NotRegexp(t, `[. ]$`, stem, "stem %q ends with a dot or space, which Windows rejects", stem)
 	reserved := map[string]bool{
 		"CON": true, "PRN": true, "AUX": true, "NUL": true,
 		"COM1": true, "COM2": true, "LPT1": true, "LPT2": true,
 	}
-	assert.False(t, reserved[strings.ToUpper(stem)], "stem %q is a reserved Windows device name", stem)
+	assert.NotContains(t, reserved, strings.ToUpper(stem), "stem %q is a reserved Windows device name", stem)
 }
 
 // Alexa can send bursts, and the whole point is a corpus: one capture must
@@ -79,7 +76,7 @@ func TestSaveNeverCollides(t *testing.T) {
 	for i := range 50 {
 		stem, err := store.Save(captureMetadata{ReceivedAt: at}, []byte("{}"))
 		require.NoError(t, err, "Save() #%d error = %v", i, err)
-		require.False(t, seen[stem], "Save() #%d reused stem %q", i, stem)
+		require.NotContains(t, seen, stem, "Save() #%d reused stem %q", i, stem)
 		seen[stem] = true
 	}
 }

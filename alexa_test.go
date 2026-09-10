@@ -107,10 +107,7 @@ func TestAlexaRespondsWithAValidEnvelope(t *testing.T) {
 	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
 	require.Equal(t, http.StatusOK, rec.Code, "status = %d, want %d", rec.Code, http.StatusOK)
-	{
-		ct := rec.Header().Get("Content-Type")
-		assert.True(t, strings.HasPrefix(ct, "application/json"), "Content-Type = %q, want application/json", ct)
-	}
+	assert.Regexp(t, `^application/json(;|$)`, rec.Header().Get("Content-Type"))
 
 	snaps.MatchJSON(t, rec.Body.Bytes())
 }
@@ -144,18 +141,12 @@ func TestAlexaPersistsRequestMetadata(t *testing.T) {
 	assert.NotEmpty(t, meta["received_at"], "received_at is missing")
 	assert.NotEmpty(t, meta["remote_addr"], "remote_addr is missing")
 	assert.NotEmpty(t, meta["proto"], "proto is missing")
-	{
-		got := meta["body_length"]
-		assert.EqualValues(t, len(sampleLaunchRequest), got, "body_length = %v, want %d", got, len(sampleLaunchRequest))
-	}
+	assert.EqualValues(t, len(sampleLaunchRequest), meta["body_length"], "body_length")
 
-	recorded, ok := meta["headers"].(map[string]any)
-	require.True(t, ok, "headers = %v, want an object", meta["headers"])
+	require.IsType(t, map[string]any{}, meta["headers"])
+	recorded := meta["headers"].(map[string]any)
 	for _, name := range []string{"Signature-256", "Signaturecertchainurl", "Content-Type"} {
-		{
-			_, present := recorded[name]
-			assert.True(t, present, "headers is missing %q; got keys %v", name, keysOf(recorded))
-		}
+		assert.Contains(t, recorded, name, "headers is missing %q; got keys %v", name, keysOf(recorded))
 	}
 }
 
@@ -177,23 +168,14 @@ func keysOf(m map[string]any) []string {
 func TestAlexaStillRespondsWhenCaptureFails(t *testing.T) {
 	store, dir := newTestCapture(t)
 
-	{
-		err := os.RemoveAll(dir)
-		require.NoError(t, err, "removing the capture directory: %v", err)
-	}
-	{
-		err := os.WriteFile(dir, []byte("not a directory"), 0o600)
-		require.NoError(t, err, "blocking the capture directory: %v", err)
-	}
+	require.NoError(t, os.RemoveAll(dir), "removing the capture directory")
+	require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o600), "blocking the capture directory")
 
 	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
 
 	require.Equal(t, http.StatusOK, rec.Code, "status = %d, want %d even though the capture failed", rec.Code, http.StatusOK)
 	var envelope map[string]any
-	{
-		err := json.Unmarshal(rec.Body.Bytes(), &envelope)
-		require.NoError(t, err, "response is not valid JSON: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope), "response is not valid JSON")
 	assert.Equal(t, "1.0", envelope["version"], "version = %v, want 1.0", envelope["version"])
 }
 

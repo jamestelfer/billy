@@ -25,7 +25,7 @@ func TestRealCapturedRequest(t *testing.T) {
 	if bodyPath == "" {
 		t.Skipf("set %s to an out-of-tree capture", networkCaptureBodyEnv)
 	}
-	require.True(t, strings.HasSuffix(bodyPath, ".body"), "%s must name a .body file", networkCaptureBodyEnv)
+	require.Regexp(t, `\.body$`, bodyPath, "%s must name a .body file", networkCaptureBodyEnv)
 
 	body, err := os.ReadFile(bodyPath)
 	require.NoError(t, err, "reading capture body: %v", err)
@@ -34,25 +34,16 @@ func TestRealCapturedRequest(t *testing.T) {
 	var metadata struct {
 		Headers http.Header `json:"headers"`
 	}
-	{
-		err := json.Unmarshal(sidecar, &metadata)
-		require.NoError(t, err, "decoding capture sidecar: %v", err)
-	}
+	require.NoError(t, json.Unmarshal(sidecar, &metadata), "decoding capture sidecar")
 	var envelope struct {
 		Request struct {
 			Timestamp time.Time `json:"timestamp"`
 		} `json:"request"`
 	}
-	{
-		err := json.Unmarshal(body, &envelope)
-		require.NoError(t, err, "decoding capture timestamp: %v", err)
-	}
-	require.False(t, envelope.Request.Timestamp.IsZero(), "capture has no request timestamp")
+	require.NoError(t, json.Unmarshal(body, &envelope), "decoding capture timestamp")
+	require.NotZero(t, envelope.Request.Timestamp, "capture has no request timestamp")
 
 	verifier, err := New(WithClock(at(envelope.Request.Timestamp)))
 	require.NoError(t, err, "New: %v", err)
-	{
-		err := verifier.Verify(t.Context(), body, metadata.Headers)
-		require.NoError(t, err, "Verify live capture: %v", err)
-	}
+	require.NoError(t, verifier.Verify(t.Context(), body, metadata.Headers), "Verify live capture")
 }

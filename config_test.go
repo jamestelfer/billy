@@ -24,14 +24,8 @@ func TestLoadConfigDefaults(t *testing.T) {
 
 	assert.Equal(t, "billy", cfg.Hostname, "Hostname = %q, want %q", cfg.Hostname, "billy")
 	assert.Equal(t, "tskey-auth-secret", cfg.AuthKey, "AuthKey = %q, want the value from TS_AUTHKEY", cfg.AuthKey)
-	{
-		want := filepath.Join(userConfig, "billy", "tsnet")
-		assert.Equal(t, want, cfg.StateDir, "StateDir = %q, want %q", cfg.StateDir, want)
-	}
-	{
-		want := filepath.Join(userConfig, "billy", "capture")
-		assert.Equal(t, want, cfg.CaptureDir, "CaptureDir = %q, want %q", cfg.CaptureDir, want)
-	}
+	assert.Equal(t, filepath.Join(userConfig, "billy", "tsnet"), cfg.StateDir)
+	assert.Equal(t, filepath.Join(userConfig, "billy", "capture"), cfg.CaptureDir)
 	assert.Equal(t, defaultCertChainURL, cfg.CertChainURL, "CertChainURL = %q, want the observed Alexa URL %q", cfg.CertChainURL, defaultCertChainURL)
 	assert.Equal(t, ":443", cfg.Addr, "Addr = %q, want %q — Funnel and Alexa both require 443", cfg.Addr, ":443")
 }

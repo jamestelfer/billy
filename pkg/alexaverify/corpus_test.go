@@ -34,10 +34,7 @@ func TestSyntheticSignedRequestCorpus(t *testing.T) {
 		t.Run(fixture.name, func(t *testing.T) {
 			verifier, _ := verifierServingBundle(t, roots, corpusNow, chain)
 			headers := headersForURL(fixture.headers.Signature256, fixture.headers.CertificateChainURL)
-			{
-				err := verifier.Verify(t.Context(), fixture.body, headers)
-				require.NoError(t, err, "Verify: %v", err)
-			}
+			require.NoError(t, verifier.Verify(t.Context(), fixture.body, headers))
 		})
 	}
 }
@@ -48,10 +45,7 @@ func TestSyntheticCorpusSignaturesRejectReserializedBodies(t *testing.T) {
 	for _, fixture := range fixtures {
 		t.Run(fixture.name, func(t *testing.T) {
 			var envelope any
-			{
-				err := json.Unmarshal(fixture.body, &envelope)
-				require.NoError(t, err, "decoding fixture: %v", err)
-			}
+			require.NoError(t, json.Unmarshal(fixture.body, &envelope), "decoding fixture")
 			reserialized, err := json.Marshal(envelope)
 			require.NoError(t, err, "re-encoding fixture: %v", err)
 			require.NotEqual(t, fixture.body, reserialized,
@@ -88,10 +82,7 @@ func loadCorpus(t *testing.T) ([]corpusFixture, *x509.CertPool, []byte) {
 		encodedHeaders, err := os.ReadFile(filepath.Join(dir, "headers.json"))
 		require.NoError(t, err, "reading %s headers: %v", entry.Name(), err)
 		var headers corpusHeaders
-		{
-			err := json.Unmarshal(encodedHeaders, &headers)
-			require.NoError(t, err, "decoding %s headers: %v", entry.Name(), err)
-		}
+		require.NoError(t, json.Unmarshal(encodedHeaders, &headers), "decoding %s headers", entry.Name())
 		fixtures = append(fixtures, corpusFixture{name: entry.Name(), body: body, headers: headers})
 	}
 

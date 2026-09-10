@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -71,20 +72,22 @@ func TestInteractionModelIsValidForTheConsole(t *testing.T) {
 
 	// The console rejects an invocation name that is not lower case, and
 	// speech recognition never produces anything else.
-	{
-		name := language.InvocationName
-		assert.False(t, name != strings.ToLower(name) || strings.TrimSpace(name) == "", "invocationName = %q, want a non-empty lower-case phrase", name)
-	}
+	name := language.InvocationName
+	assert.NotEmpty(t, strings.TrimSpace(name), "invocationName must not be empty")
+	assert.Equal(t, strings.ToLower(name), name, "invocationName must be lower case")
 
 	for _, intent := range language.Intents {
-		builtin := strings.HasPrefix(intent.Name, "AMAZON.")
+		if strings.HasPrefix(intent.Name, "AMAZON.") {
+			assert.Empty(t, intent.Samples, "built-in intent %s must have no samples", intent.Name)
+			continue
+		}
 		for _, sample := range intent.Samples {
-			assert.False(t, builtin, "intent %s carries sample %q; built-in intents must have no samples", intent.Name, sample)
 			assert.Equal(t, strings.ToLower(sample), sample, "intent %s sample %q is not lower case", intent.Name, sample)
-			assert.False(t, strings.ContainsAny(sample, ".,?!;:\""), "intent %s sample %q contains punctuation the console rejects", intent.Name, sample)
+			assert.NotRegexp(t, `[.,?!;:"]`, sample, "intent %s sample %q contains punctuation the console rejects", intent.Name, sample)
 			// "alexa ask audiobookshelf to capture this" is spoken as a whole;
 			// the sample covers only the part after the invocation name.
-			assert.False(t, strings.HasPrefix(sample, language.InvocationName), "intent %s sample %q repeats the invocation name", intent.Name, sample)
+			assert.NotRegexp(t, "^"+regexp.QuoteMeta(language.InvocationName), sample,
+				"intent %s sample %q repeats the invocation name", intent.Name, sample)
 		}
 	}
 }
@@ -93,7 +96,7 @@ func TestInteractionModelDeclaresTheRequiredBuiltins(t *testing.T) {
 	names := intentNames(t)
 
 	for _, required := range requiredBuiltinIntents {
-		assert.True(t, slices.Contains(names, required), "interaction model is missing %s; got %v", required, names)
+		assert.Contains(t, names, required, "interaction model is missing %s; got %v", required, names)
 	}
 }
 
@@ -122,7 +125,7 @@ func TestInteractionModelDoesNotAnticipateAudioPlayer(t *testing.T) {
 	names := intentNames(t)
 
 	for _, intent := range audioPlayerIntents {
-		assert.False(t, slices.Contains(names, intent), "interaction model declares %s; AudioPlayer is a later phase", intent)
+		assert.NotContains(t, names, intent, "interaction model declares %s; AudioPlayer is a later phase", intent)
 	}
 }
 
@@ -218,7 +221,7 @@ func TestSkillManifestExamplePhrasesMatchTheInteractionModel(t *testing.T) {
 	}
 
 	for _, phrase := range locale.ExamplePhrases {
-		if !assert.True(t, strings.HasPrefix(phrase, "Alexa, "),
+		if !assert.Regexp(t, `^Alexa, `, phrase,
 			"example phrase %q does not start with the wake word", phrase) {
 			continue
 		}
@@ -242,7 +245,7 @@ func TestDialogCorpusReachesTheSkill(t *testing.T) {
 	var launches, intents int
 	for _, utterance := range replay.UserInput {
 		// ask dialog takes what the user says after the wake word.
-		assert.False(t, strings.HasPrefix(strings.ToLower(utterance), "alexa"), "corpus utterance %q includes the wake word; ask dialog does not want it", utterance)
+		assert.NotRegexp(t, `^alexa`, strings.ToLower(utterance), "corpus utterance %q includes the wake word; ask dialog does not want it", utterance)
 		assert.Contains(t, utterance, model.InvocationName, "corpus utterance %q never names the skill, so Alexa will not route it here", utterance)
 		if utteranceReachesSkill(utterance, model.InvocationName, samples) {
 			if strings.HasSuffix(utterance, model.InvocationName) {
@@ -307,8 +310,5 @@ func readSkillFile(t *testing.T, path string, into any) {
 
 	raw, err := os.ReadFile(path)
 	require.NoError(t, err, "reading %s: %v", path, err)
-	{
-		err := json.Unmarshal(raw, into)
-		require.NoError(t, err, "parsing %s: %v", path, err)
-	}
+	require.NoError(t, json.Unmarshal(raw, into), "parsing %s", path)
 }

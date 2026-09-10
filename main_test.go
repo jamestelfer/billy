@@ -65,10 +65,8 @@ func TestRunUsageErrorsExitWithTheUsageCode(t *testing.T) {
 	} {
 		t.Run(strings.Join(args[1:], " "), func(t *testing.T) {
 			var stdout, stderr bytes.Buffer
-			{
-				code := run(args, &stdout, &stderr)
-				require.Equal(t, exitUsage, code, "run(%q) exit code = %d, want %d", args[1:], code, exitUsage)
-			}
+			code := run(args, &stdout, &stderr)
+			require.Equal(t, exitUsage, code, "run(%q) exit code = %d, want %d", args[1:], code, exitUsage)
 		})
 	}
 }
