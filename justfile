@@ -51,6 +51,7 @@ start *args: build capture-dir
     #!/usr/bin/env bash
     set -euo pipefail
     : "${BILLY_SKILL_ENDPOINT:?set it to the Funnel endpoint, e.g. https://billy.<tailnet>.ts.net/alexa}"
+    : "${BILLY_BOOK_DESCRIPTOR:?set it to the external book descriptor JSON}"
     if [[ -f {{pidfile}} ]] && kill -0 "$(cat {{pidfile}})" 2>/dev/null; then
         echo "already running (pid $(cat {{pidfile}})); use 'just stop'" >&2
         exit 1

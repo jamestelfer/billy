@@ -3,7 +3,42 @@
 {
  "response": {
   "outputSpeech": {
-   "text": "Captured.",
+   "text": "What would you like to play?",
+   "type": "PlainText"
+  },
+  "reprompt": {
+   "outputSpeech": {
+    "text": "What would you like to play?",
+    "type": "PlainText"
+   }
+  },
+  "shouldEndSession": false
+ },
+ "sessionAttributes": {
+  "awaitingTitle": true
+ },
+ "version": "1.0"
+}
+---
+
+[TestAlexaDirectPlayReturnsTheConfiguredStream - 1]
+{
+ "response": {
+  "directives": [
+   {
+    "audioItem": {
+     "stream": {
+      "offsetInMilliseconds": 0,
+      "token": "20d5b92f-69ff-4cb4-9236-3fae8c8f36e1",
+      "url": "https://billy.example.test/media/book.mp3"
+     }
+    },
+    "playBehavior": "REPLACE_ALL",
+    "type": "AudioPlayer.Play"
+   }
+  ],
+  "outputSpeech": {
+   "text": "Playing Test Book.",
    "type": "PlainText"
   },
   "shouldEndSession": true

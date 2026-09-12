@@ -19,7 +19,10 @@ func env(pairs map[string]string) func(string) string {
 func TestLoadConfigDefaults(t *testing.T) {
 	userConfig := t.TempDir()
 
-	cfg, err := loadConfig(env(map[string]string{"TS_AUTHKEY": "tskey-auth-secret"}), userConfig)
+	cfg, err := loadConfig(env(map[string]string{
+		"TS_AUTHKEY":            "tskey-auth-secret",
+		"BILLY_BOOK_DESCRIPTOR": "books/book.json",
+	}), userConfig)
 	require.NoError(t, err, "loadConfig() error = %v", err)
 
 	assert.Equal(t, "billy", cfg.Hostname, "Hostname = %q, want %q", cfg.Hostname, "billy")
@@ -27,7 +30,15 @@ func TestLoadConfigDefaults(t *testing.T) {
 	assert.Equal(t, filepath.Join(userConfig, "billy", "tsnet"), cfg.StateDir)
 	assert.Equal(t, filepath.Join(userConfig, "billy", "capture"), cfg.CaptureDir)
 	assert.Equal(t, defaultCertChainURL, cfg.CertChainURL, "CertChainURL = %q, want the observed Alexa URL %q", cfg.CertChainURL, defaultCertChainURL)
+	assert.Equal(t, "books/book.json", cfg.BookDescriptor)
 	assert.Equal(t, ":443", cfg.Addr, "Addr = %q, want %q — Funnel and Alexa both require 443", cfg.Addr, ":443")
+}
+
+func TestLoadConfigRequiresBookDescriptor(t *testing.T) {
+	_, err := loadConfig(env(nil), t.TempDir())
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), envBookDescriptor)
 }
 
 func TestLoadConfigOverridesEveryDefault(t *testing.T) {
@@ -36,11 +47,12 @@ func TestLoadConfigOverridesEveryDefault(t *testing.T) {
 	certChainURL := "https://s3.amazonaws.com/echo.api/override.pem"
 
 	cfg, err := loadConfig(env(map[string]string{
-		"TS_AUTHKEY":           "tskey-auth-secret",
-		"BILLY_HOSTNAME":       "echo-capture",
-		"BILLY_STATE_DIR":      stateDir,
-		"BILLY_CAPTURE_DIR":    captureDir,
-		"BILLY_CERT_CHAIN_URL": certChainURL,
+		"TS_AUTHKEY":            "tskey-auth-secret",
+		"BILLY_HOSTNAME":        "echo-capture",
+		"BILLY_STATE_DIR":       stateDir,
+		"BILLY_CAPTURE_DIR":     captureDir,
+		"BILLY_CERT_CHAIN_URL":  certChainURL,
+		"BILLY_BOOK_DESCRIPTOR": "other/book.json",
 	}), t.TempDir())
 	require.NoError(t, err, "loadConfig() error = %v", err)
 
@@ -48,6 +60,7 @@ func TestLoadConfigOverridesEveryDefault(t *testing.T) {
 	assert.Equal(t, stateDir, cfg.StateDir, "StateDir = %q, want %q", cfg.StateDir, stateDir)
 	assert.Equal(t, captureDir, cfg.CaptureDir, "CaptureDir = %q, want %q", cfg.CaptureDir, captureDir)
 	assert.Equal(t, certChainURL, cfg.CertChainURL, "CertChainURL = %q, want %q", cfg.CertChainURL, certChainURL)
+	assert.Equal(t, "other/book.json", cfg.BookDescriptor)
 }
 
 // An auth key already persisted in the state directory is enough: TS_AUTHKEY
@@ -55,7 +68,7 @@ func TestLoadConfigOverridesEveryDefault(t *testing.T) {
 // start would push operators towards leaving the key in the environment
 // permanently.
 func TestLoadConfigAllowsAbsentAuthKey(t *testing.T) {
-	cfg, err := loadConfig(env(nil), t.TempDir())
+	cfg, err := loadConfig(env(map[string]string{"BILLY_BOOK_DESCRIPTOR": "book.json"}), t.TempDir())
 	require.NoError(t, err, "loadConfig() with no TS_AUTHKEY error = %v, want nil", err)
 	assert.Empty(t, cfg.AuthKey, "AuthKey = %q, want empty", cfg.AuthKey)
 }
@@ -63,7 +76,10 @@ func TestLoadConfigAllowsAbsentAuthKey(t *testing.T) {
 // The auth key is a credential: it must never reach a log line, and slog
 // resolves LogValuer on anything it is handed.
 func TestConfigLogValueRedactsAuthKey(t *testing.T) {
-	cfg, err := loadConfig(env(map[string]string{"TS_AUTHKEY": "tskey-auth-secret"}), t.TempDir())
+	cfg, err := loadConfig(env(map[string]string{
+		"TS_AUTHKEY":            "tskey-auth-secret",
+		"BILLY_BOOK_DESCRIPTOR": "book.json",
+	}), t.TempDir())
 	require.NoError(t, err, "loadConfig() error = %v", err)
 
 	rendered := cfg.LogValue().String()
@@ -82,7 +98,10 @@ func TestLoadConfigRejectsInvalidHostname(t *testing.T) {
 		"too long":        strings.Repeat("b", 64),
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := loadConfig(env(map[string]string{"BILLY_HOSTNAME": hostname}), t.TempDir())
+			_, err := loadConfig(env(map[string]string{
+				"BILLY_HOSTNAME":        hostname,
+				"BILLY_BOOK_DESCRIPTOR": "book.json",
+			}), t.TempDir())
 			require.Error(t, err, "loadConfig() with %s hostname %q error = nil, want an error", name, hostname)
 		})
 	}

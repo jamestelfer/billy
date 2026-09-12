@@ -7,9 +7,9 @@ Tailscale node (`tsnet`) and serves the Alexa skill endpoint over Tailscale
 Funnel — no reverse proxy, no separate `tailscaled`, no cloud function.
 
 > **Status: early.** The current build reaches the internet over Funnel,
-> verifies every Alexa request in-process, and captures only verified raw
-> request bodies. There is no Audiobookshelf integration or AudioPlayer
-> behaviour yet; the skill remains in Development status while those land.
+> verifies and captures Alexa requests, and can play one externally configured,
+> non-sensitive MP3 on an AudioPlayer-capable Alexa device with pause, resume,
+> stop, and lifecycle handling. There is no Audiobookshelf integration yet.
 
 ## Build
 
@@ -28,19 +28,34 @@ Configuration comes from the environment:
 | Variable | Required | Purpose |
 |---|---|---|
 | `TS_AUTHKEY` | yes, on first run | Reusable, non-ephemeral tailnet auth key |
+| `BILLY_BOOK_DESCRIPTOR` | yes | Path to the external JSON descriptor for the one book to serve |
 | `BILLY_HOSTNAME` | no | Tailnet node name (default `billy`) — determines the Funnel URL |
 | `BILLY_STATE_DIR` | no | tsnet node state; defaults under the user config dir |
 | `BILLY_CAPTURE_DIR` | no | Captured requests; defaults under the user config dir |
 | `BILLY_CERT_CHAIN_URL` | no | Public S3 certificate URL used for best-effort startup cache warming |
 
 ```
-TS_AUTHKEY=tskey-auth-... ./billy
+TS_AUTHKEY=tskey-auth-... BILLY_BOOK_DESCRIPTOR=/srv/billy/book.json ./billy
+```
+
+The descriptor is strict JSON. Its `mp3` path is relative to the descriptor's
+own directory and cannot escape it:
+
+```json
+{
+  "title": "The configured title",
+  "author": "Optional author",
+  "mp3": "media/book.mp3"
+}
 ```
 
 The node's Funnel URL is `https://<hostname>.<tailnet>.ts.net`. `/healthz`
-answers `200`; `/alexa` is the authenticated skill endpoint. Certificate cache
-warming runs asynchronously and never blocks readiness or fails startup; if it
-cannot complete, the first valid request performs the same bounded fetch.
+answers `200`, `/alexa` is the authenticated skill endpoint, and
+`/media/book.mp3` publicly serves only the validated MP3 with byte-range
+support. Invalid book configuration prevents the listener from opening.
+Certificate cache warming runs asynchronously and never blocks readiness or
+fails startup; if it cannot complete, the first valid request performs the
+same bounded fetch.
 
 > **Captured requests are secret material.** Alexa envelopes contain a live
 > `apiAccessToken` along with user and device identifiers. The capture

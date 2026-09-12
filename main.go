@@ -109,6 +109,15 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 	if err != nil {
 		return err
 	}
+	configuredBook, err := loadBook(cfg.BookDescriptor)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if err := configuredBook.Close(); err != nil {
+			log.Error("closing the book descriptor directory", slog.Any("error", err))
+		}
+	}()
 	log.Info("starting", slog.Any("config", cfg), slog.String("version", buildVersion()))
 
 	// The state directory holds the node identity: if it is lost the Funnel
@@ -167,5 +176,5 @@ func serveFunnel(ctx context.Context, log *slog.Logger) error {
 
 	log.Info("serving", slog.String("url", "https://"+cfg.Hostname+".<tailnet>.ts.net"))
 
-	return serve(ctx, ln, newRouter(log, capture, verifier), log)
+	return serve(ctx, ln, newRouter(log, capture, verifier, configuredBook), log)
 }

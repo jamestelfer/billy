@@ -5,7 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"testing"
 
@@ -16,9 +15,7 @@ import (
 // alexa/ is an ASK CLI project: `just skill-deploy` renders it and hands the
 // skill package to Amazon, which is the only thing that validates it. A
 // mistake there surfaces as a failed import minutes later, so these tests
-// hold the package to the rules the console and certification enforce, plus
-// the phase constraints from setup.md: one custom intent, the required
-// built-ins, and nothing that turns on AudioPlayer.
+// hold the package to the rules the console and AudioPlayer require.
 //
 // They deliberately read the *tracked* package, not the rendered copy under
 // alexa/dist/ — the endpoint placeholder is part of what is being checked.
@@ -34,9 +31,7 @@ var requiredBuiltinIntents = []string{
 	"AMAZON.FallbackIntent",
 }
 
-// audioPlayerIntents are required *only* once the AudioPlayer interface is
-// enabled, which this phase deliberately does not do (setup.md, Phase 3).
-// Their presence would mean the model had drifted ahead of the endpoint.
+// audioPlayerIntents are required when the AudioPlayer interface is enabled.
 var audioPlayerIntents = []string{
 	"AMAZON.PauseIntent",
 	"AMAZON.ResumeIntent",
@@ -73,7 +68,7 @@ func TestInteractionModelIsValidForTheConsole(t *testing.T) {
 	// The console rejects an invocation name that is not lower case, and
 	// speech recognition never produces anything else.
 	name := language.InvocationName
-	assert.NotEmpty(t, strings.TrimSpace(name), "invocationName must not be empty")
+	assert.Equal(t, "billy", name, "invocationName must match the deployed skill name")
 	assert.Equal(t, strings.ToLower(name), name, "invocationName must be lower case")
 
 	for _, intent := range language.Intents {
@@ -100,32 +95,42 @@ func TestInteractionModelDeclaresTheRequiredBuiltins(t *testing.T) {
 	}
 }
 
-// setup.md Phase 3: one custom intent with a couple of sample utterances is
-// enough to produce an IntentRequest, which is the second envelope shape the
-// corpus needs alongside the LaunchRequest.
-func TestInteractionModelHasOneCustomIntentWithSamples(t *testing.T) {
+func TestInteractionModelDeclaresDirectAndPromptedTitlePlayback(t *testing.T) {
 	model := loadInteractionModel(t)
 
-	custom := 0
+	custom := make(map[string]struct {
+		Samples []string
+		Slots   map[string]string
+	})
 	for _, intent := range model.InteractionModel.LanguageModel.Intents {
 		if strings.HasPrefix(intent.Name, "AMAZON.") {
 			continue
 		}
-		custom++
-		assert.GreaterOrEqual(t, len(intent.Samples), 2, "custom intent %s has %d samples, want at least 2", intent.Name, len(intent.Samples))
-		// A slot means slot resolution can fail before the request is even
-		// dispatched, which is a way to lose a capture for no benefit.
-		assert.Empty(t, intent.Slots, "custom intent %s declares %d slots, want none in this phase", intent.Name, len(intent.Slots))
+		slots := make(map[string]string, len(intent.Slots))
+		for _, slot := range intent.Slots {
+			slots[slot.Name] = slot.Type
+		}
+		custom[intent.Name] = struct {
+			Samples []string
+			Slots   map[string]string
+		}{intent.Samples, slots}
 	}
 
-	assert.Equal(t, 1, custom, "model declares %d custom intents, want exactly 1", custom)
+	require.Len(t, custom, 2)
+	direct := custom["PlayBookIntent"]
+	assert.Contains(t, direct.Samples, "play {title}")
+	assert.Contains(t, direct.Samples, "listen to {title}")
+	assert.Equal(t, "AMAZON.SearchQuery", direct.Slots["title"])
+	prompted := custom["SelectBookIntent"]
+	assert.Contains(t, prompted.Samples, "{title}")
+	assert.Equal(t, "AMAZON.SearchQuery", prompted.Slots["title"])
 }
 
-func TestInteractionModelDoesNotAnticipateAudioPlayer(t *testing.T) {
+func TestInteractionModelDeclaresAudioPlayerBuiltins(t *testing.T) {
 	names := intentNames(t)
 
 	for _, intent := range audioPlayerIntents {
-		assert.NotContains(t, names, intent, "interaction model declares %s; AudioPlayer is a later phase", intent)
+		assert.Contains(t, names, intent, "interaction model is missing AudioPlayer built-in %s", intent)
 	}
 }
 
@@ -201,7 +206,7 @@ func TestSkillManifestKeepsTheEndpointOutOfGit(t *testing.T) {
 	// Tailscale provisions a genuine publicly-trusted certificate for the
 	// ts.net name, so neither SelfSigned nor Wildcard applies.
 	assert.Equal(t, "Trusted", endpoint.SSLCertificateType, "manifest sslCertificateType = %q, want %q", endpoint.SSLCertificateType, "Trusted")
-	assert.Nil(t, manifest.Manifest.Apis.AudioPlayer, "manifest enables the AudioPlayer interface; that is a later phase")
+	assert.NotNil(t, manifest.Manifest.Apis.AudioPlayer, "manifest must enable the AudioPlayer interface")
 }
 
 // Certification requires every example phrase to be a real invocation drawn
@@ -279,9 +284,26 @@ func utteranceReachesSkill(utterance, invocationName string, samples []string) b
 		if !ok {
 			continue
 		}
-		return slices.Contains(samples, strings.TrimSpace(tail))
+		tail = strings.TrimSpace(tail)
+		for _, sample := range samples {
+			if sampleMatchesUtterance(sample, tail) {
+				return true
+			}
+		}
 	}
 	return false
+}
+
+func sampleMatchesUtterance(sample, utterance string) bool {
+	prefix, suffix, hasTitle := strings.Cut(sample, "{title}")
+	if !hasTitle {
+		return sample == utterance
+	}
+	if !strings.HasPrefix(utterance, prefix) || !strings.HasSuffix(utterance, suffix) {
+		return false
+	}
+	title := strings.TrimSuffix(strings.TrimPrefix(utterance, prefix), suffix)
+	return strings.TrimSpace(title) != ""
 }
 
 // customSamples is every sample utterance across the model's custom intents.

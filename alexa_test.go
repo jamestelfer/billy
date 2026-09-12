@@ -27,6 +27,20 @@ const sampleLaunchRequest = `{"version":"1.0","session":{"new":true,"sessionId":
 	`"application":{"applicationId":"amzn1.ask.skill.1"},"user":{"userId":"amzn1.ask.account.1"}},` +
 	`"request":{"type":"LaunchRequest","requestId":"amzn1.echo-api.request.1","timestamp":"2026-08-30T01:02:03Z","locale":"en-AU"}}`
 
+const samplePlayRequest = `{"version":"1.0","context":{"System":{"device":{"supportedInterfaces":{"AudioPlayer":{}}}}},` +
+	`"request":{"type":"IntentRequest","requestId":"amzn1.echo-api.request.2","timestamp":"2026-08-30T01:02:03Z",` +
+	`"locale":"en-US","intent":{"name":"PlayBookIntent","slots":{"title":{"name":"title","value":"Test Book"}}}}}`
+
+const samplePromptedTitleRequest = `{"version":"1.0","session":{"attributes":{"awaitingTitle":true}},` +
+	`"context":{"System":{"device":{"supportedInterfaces":{"AudioPlayer":{}}}}},` +
+	`"request":{"type":"IntentRequest","requestId":"amzn1.echo-api.request.3","timestamp":"2026-08-30T01:02:03Z",` +
+	`"locale":"en-US","intent":{"name":"SelectBookIntent","slots":{"title":{"name":"title","value":"Test Book"}}}}}`
+
+const samplePauseRequest = `{"version":"1.0","context":{"AudioPlayer":{"playerActivity":"PLAYING",` +
+	`"token":"` + staticBookToken + `","offsetInMilliseconds":42000}},` +
+	`"request":{"type":"IntentRequest","requestId":"amzn1.echo-api.request.4","timestamp":"2026-08-30T01:02:03Z",` +
+	`"locale":"en-US","intent":{"name":"AMAZON.PauseIntent"}}}`
+
 // signatureHeaders are the two headers every Alexa request carries. The values
 // are structurally plausible but not genuine: these tests exercise the gate's
 // routing and logging, not the cryptography.
@@ -75,7 +89,7 @@ func captureVerifiedRequest(t *testing.T, store *captureStore, body string, head
 		req.Header.Set(k, v)
 	}
 	rec := httptest.NewRecorder()
-	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow)
+	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
 	return rec
 }
 
@@ -110,6 +124,300 @@ func TestAlexaRespondsWithAValidEnvelope(t *testing.T) {
 	assert.Regexp(t, `^application/json(;|$)`, rec.Header().Get("Content-Type"))
 
 	snaps.MatchJSON(t, rec.Body.Bytes())
+}
+
+func TestAlexaDirectPlayReturnsTheConfiguredStream(t *testing.T) {
+	store, _ := newTestCapture(t)
+	configuredBook := mustBook(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(samplePlayRequest))
+	req.Host = "billy.example.test"
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(samplePlayRequest), testNow, configuredBook)
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	snaps.MatchJSON(t, rec.Body.Bytes())
+	assert.Contains(t, rec.Body.String(), `"url":"https://billy.example.test/media/book.mp3"`)
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Len(t, response.Response.Directives, 1)
+	token := response.Response.Directives[0].AudioItem.Stream.Token
+	assert.NotContains(t, token, configuredBook.Title)
+	assert.NotContains(t, token, configuredBook.mediaName)
+}
+
+func TestAlexaAcknowledgesAudioPlayerLifecycleEventsWithoutInteraction(t *testing.T) {
+	for _, eventType := range []string{
+		"AudioPlayer.PlaybackStarted",
+		"AudioPlayer.PlaybackStopped",
+		"AudioPlayer.PlaybackFinished",
+		"AudioPlayer.PlaybackNearlyFinished",
+	} {
+		t.Run(eventType, func(t *testing.T) {
+			body := `{"version":"1.0","request":{"type":"` + eventType + `","requestId":"request-id",` +
+				`"timestamp":"2026-08-30T01:02:03Z","token":"` + staticBookToken + `","offsetInMilliseconds":42000}}`
+			store, captureDir := newTestCapture(t)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+
+			captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+			var response alexaEnvelope
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			assert.Empty(t, response.Response.Directives)
+			assert.Nil(t, response.Response.OutputSpeech)
+			assert.NotEmpty(t, onlyCapturedStem(t, captureDir))
+		})
+	}
+}
+
+func TestAlexaPlaybackFailureIsDiagnosticAndDoesNotStopService(t *testing.T) {
+	body := `{"version":"1.0","request":{"type":"AudioPlayer.PlaybackFailed","requestId":"request-id",` +
+		`"timestamp":"2026-08-30T01:02:03Z","token":"` + staticBookToken + `",` +
+		`"error":{"type":"MEDIA_ERROR_UNKNOWN","message":"private failure detail"}}}`
+	store, _ := newTestCapture(t)
+	configuredBook := mustBook(t)
+	var logged bytes.Buffer
+	log := slog.New(slog.NewTextHandler(&logged, nil))
+	failedReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+	failedRec := httptest.NewRecorder()
+
+	captureAndRespond(failedRec, failedReq, log, store, []byte(body), testNow, configuredBook)
+
+	require.Equal(t, http.StatusOK, failedRec.Code)
+	assert.Contains(t, logged.String(), "audio playback failed")
+	assert.Contains(t, logged.String(), "MEDIA_ERROR_UNKNOWN")
+	assert.Contains(t, logged.String(), staticBookToken)
+	assert.NotContains(t, logged.String(), "private failure detail")
+
+	playReq := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(samplePlayRequest))
+	playRec := httptest.NewRecorder()
+	captureAndRespond(playRec, playReq, log, store, []byte(samplePlayRequest), testNow, configuredBook)
+	var playResponse alexaEnvelope
+	require.NoError(t, json.Unmarshal(playRec.Body.Bytes(), &playResponse))
+	assert.Len(t, playResponse.Response.Directives, 1)
+
+	healthRec := httptest.NewRecorder()
+	handleHealthz(healthRec, httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/healthz", nil))
+	assert.Equal(t, http.StatusOK, healthRec.Code)
+}
+
+func TestAlexaPauseAndStopIssueStopForTheConfiguredStream(t *testing.T) {
+	for _, intent := range []string{"AMAZON.PauseIntent", "AMAZON.StopIntent"} {
+		t.Run(intent, func(t *testing.T) {
+			body := strings.Replace(samplePauseRequest, "AMAZON.PauseIntent", intent, 1)
+			store, _ := newTestCapture(t)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+
+			captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+			var response alexaEnvelope
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			require.Len(t, response.Response.Directives, 1)
+			assert.Equal(t, "AudioPlayer.Stop", response.Response.Directives[0].Type)
+			assert.NotEqual(t, "AudioPlayer.Play", response.Response.Directives[0].Type)
+			assert.Nil(t, response.Response.OutputSpeech)
+		})
+	}
+}
+
+func TestAlexaTransportIgnoresAnotherStream(t *testing.T) {
+	for _, intent := range []string{"AMAZON.PauseIntent", "AMAZON.StopIntent", "AMAZON.ResumeIntent"} {
+		t.Run(intent, func(t *testing.T) {
+			body := strings.Replace(samplePauseRequest, "AMAZON.PauseIntent", intent, 1)
+			body = strings.Replace(body, staticBookToken, "another-stream", 1)
+			store, _ := newTestCapture(t)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+
+			captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+			var response alexaEnvelope
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			assert.Empty(t, response.Response.Directives)
+			assert.Nil(t, response.Response.OutputSpeech)
+		})
+	}
+}
+
+func TestAlexaResumeRequiresAPausedConfiguredStream(t *testing.T) {
+	body := strings.Replace(samplePauseRequest, "AMAZON.PauseIntent", "AMAZON.ResumeIntent", 1)
+	store, _ := newTestCapture(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Empty(t, response.Response.Directives)
+}
+
+func TestAlexaResumeContinuesTheConfiguredStreamAtReportedOffset(t *testing.T) {
+	body := strings.Replace(samplePauseRequest, "AMAZON.PauseIntent", "AMAZON.ResumeIntent", 1)
+	body = strings.Replace(body, `"playerActivity":"PLAYING"`, `"playerActivity":"PAUSED"`, 1)
+	store, _ := newTestCapture(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+	req.Host = "billy.example.test"
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.Len(t, response.Response.Directives, 1)
+	directive := response.Response.Directives[0]
+	assert.Equal(t, "AudioPlayer.Play", directive.Type)
+	assert.Equal(t, "REPLACE_ALL", directive.PlayBehavior)
+	require.NotNil(t, directive.AudioItem)
+	assert.Equal(t, staticBookToken, directive.AudioItem.Stream.Token)
+	assert.Equal(t, int64(42000), directive.AudioItem.Stream.OffsetInMilliseconds)
+	assert.Equal(t, "https://billy.example.test/media/book.mp3", directive.AudioItem.Stream.URL)
+	assert.Nil(t, response.Response.OutputSpeech)
+}
+
+func TestAlexaLaunchPromptsForATitleAndKeepsTheSessionOpen(t *testing.T) {
+	store, _ := newTestCapture(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(sampleLaunchRequest))
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(sampleLaunchRequest), testNow, mustBook(t))
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Empty(t, response.Response.Directives)
+	require.NotNil(t, response.Response.ShouldEndSession)
+	assert.False(t, *response.Response.ShouldEndSession)
+	assert.Equal(t, true, response.SessionAttributes["awaitingTitle"])
+	require.NotNil(t, response.Response.OutputSpeech)
+	assert.Contains(t, response.Response.OutputSpeech.Text, "play")
+}
+
+func TestAlexaPromptedTitleStartsOnlyInThePromptCreatedState(t *testing.T) {
+	for name, body := range map[string]string{
+		"prompted":     samplePromptedTitleRequest,
+		"out of state": strings.Replace(samplePromptedTitleRequest, `"attributes":{"awaitingTitle":true}`, `"attributes":{}`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			store, _ := newTestCapture(t)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+
+			captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+			var response alexaEnvelope
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			if name == "prompted" {
+				assert.Len(t, response.Response.Directives, 1)
+			} else {
+				assert.Empty(t, response.Response.Directives)
+			}
+		})
+	}
+}
+
+func TestAlexaTitleMatchingIgnoresOnlyCasePunctuationAndWhitespace(t *testing.T) {
+	tests := map[string]struct {
+		title string
+		match bool
+	}{
+		"exact":              {title: "Test Book", match: true},
+		"case":               {title: "test book", match: true},
+		"punctuation spaces": {title: "  Test,   Book!  ", match: true},
+		"substring":          {title: "Test", match: false},
+		"near match":         {title: "Test Books", match: false},
+	}
+
+	paths := map[string]string{"direct": samplePlayRequest, "prompted": samplePromptedTitleRequest}
+	for name, tc := range tests {
+		for pathName, template := range paths {
+			t.Run(name+"/"+pathName, func(t *testing.T) {
+				body := strings.Replace(template, `"value":"Test Book"`, `"value":"`+tc.title+`"`, 1)
+				store, _ := newTestCapture(t)
+				req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+				rec := httptest.NewRecorder()
+
+				captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+				var response alexaEnvelope
+				require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+				if tc.match {
+					assert.Len(t, response.Response.Directives, 1)
+				} else {
+					assert.Empty(t, response.Response.Directives)
+				}
+			})
+		}
+	}
+}
+
+func TestAlexaUnknownTitleNamesTheOnlyAvailableBook(t *testing.T) {
+	body := strings.Replace(samplePlayRequest, `"value":"Test Book"`, `"value":"Another Book"`, 1)
+	store, _ := newTestCapture(t)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Empty(t, response.Response.Directives)
+	require.NotNil(t, response.Response.OutputSpeech)
+	assert.Equal(t, "I only know Test Book.", response.Response.OutputSpeech.Text)
+}
+
+func TestAlexaDoesNotStartAudioWithoutAnExplicitMatchingTitle(t *testing.T) {
+	tests := map[string]string{
+		"launch":           sampleLaunchRequest,
+		"unrelated intent": strings.Replace(samplePlayRequest, "PlayBookIntent", "AMAZON.HelpIntent", 1),
+		"unknown title":    strings.Replace(samplePlayRequest, `"value":"Test Book"`, `"value":"Another Book"`, 1),
+	}
+
+	for name, body := range tests {
+		t.Run(name, func(t *testing.T) {
+			store, _ := newTestCapture(t)
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+			rec := httptest.NewRecorder()
+
+			captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, mustBook(t))
+
+			var response alexaEnvelope
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+			assert.Empty(t, response.Response.Directives)
+		})
+	}
+}
+
+func TestAlexaMatchingTitleOnUnsupportedDeviceDoesNotStartAudio(t *testing.T) {
+	store, _ := newTestCapture(t)
+	configuredBook := mustBook(t)
+	body := strings.Replace(samplePlayRequest, `"supportedInterfaces":{"AudioPlayer":{}}`, `"supportedInterfaces":{}`, 1)
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(body), testNow, configuredBook)
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	assert.Empty(t, response.Response.Directives)
+	require.NotNil(t, response.Response.OutputSpeech)
+	assert.Contains(t, response.Response.OutputSpeech.Text, "does not support")
+}
+
+func TestAlexaPlaybackAnnouncementIncludesTheConfiguredAuthor(t *testing.T) {
+	store, _ := newTestCapture(t)
+	configuredBook := bookWithMetadata(t, "Test Book", "A. Writer", []byte("audio"))
+	req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/alexa", strings.NewReader(samplePlayRequest))
+	req.Host = "billy.example.test"
+	rec := httptest.NewRecorder()
+
+	captureAndRespond(rec, req, testLogger(), store, []byte(samplePlayRequest), testNow, configuredBook)
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &response))
+	require.NotNil(t, response.Response.OutputSpeech)
+	assert.Equal(t, "Playing Test Book by A. Writer.", response.Response.OutputSpeech.Text)
 }
 
 // R8: the exact bytes Alexa sent land on disk.
@@ -171,12 +479,13 @@ func TestAlexaStillRespondsWhenCaptureFails(t *testing.T) {
 	require.NoError(t, os.RemoveAll(dir), "removing the capture directory")
 	require.NoError(t, os.WriteFile(dir, []byte("not a directory"), 0o600), "blocking the capture directory")
 
-	rec := captureVerifiedRequest(t, store, sampleLaunchRequest, signatureHeaders())
+	rec := captureVerifiedRequest(t, store, samplePlayRequest, signatureHeaders())
 
 	require.Equal(t, http.StatusOK, rec.Code, "status = %d, want %d even though the capture failed", rec.Code, http.StatusOK)
-	var envelope map[string]any
+	var envelope alexaEnvelope
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope), "response is not valid JSON")
-	assert.Equal(t, "1.0", envelope["version"], "version = %v, want 1.0", envelope["version"])
+	assert.Equal(t, "1.0", envelope.Version)
+	assert.Len(t, envelope.Response.Directives, 1)
 }
 
 // R14/R21: a request with no verification headers is refused with 400, and
@@ -415,5 +724,5 @@ func newTestRouterWithLog(t *testing.T, store *captureStore, out io.Writer) http
 		alexaverify.WithLogger(log),
 	)
 	require.NoError(t, err, "alexaverify.New() error = %v", err)
-	return newRouter(log, store, verifier)
+	return newRouter(log, store, verifier, mustBook(t))
 }
