@@ -8,7 +8,7 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/json"
+	json "encoding/json/v2"
 	"encoding/pem"
 	"math/big"
 	"net/http"

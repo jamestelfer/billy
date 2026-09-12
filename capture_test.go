@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	json "encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +34,7 @@ func TestSaveWritesTheBodyByteForByte(t *testing.T) {
 
 	// Deliberately ugly: trailing whitespace, CRLF, duplicate keys and a
 	// non-ASCII escape all survive a byte-exact write and none survive a
-	// round trip through encoding/json.
+	// round trip through a JSON codec.
 	raw := []byte("{\r\n  \"version\" : \"1.0\",\r\n  \"a\": 1, \"a\": 2,\r\n  \"t\": \"caf\\u00e9\"  \r\n}\r\n")
 
 	stem, err := store.Save(captureMetadata{ReceivedAt: time.Now().UTC()}, raw)

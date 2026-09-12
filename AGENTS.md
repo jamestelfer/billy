@@ -8,6 +8,11 @@ A self-hosted Alexa skill endpoint for [Audiobookshelf](https://www.audiobookshe
 
 This project uses **Go 1.27**, which was released after the AI knowledge cutoff. Do not rely on training data for Go stdlib or dependency APIs — always fetch current documentation via Context7 before using an unfamiliar API.
 
+All JSON encoding and decoding uses Go 1.27's `encoding/json/v2` (and
+`encoding/json/jsontext` where needed). Importing the v1 `encoding/json` package
+is categorically forbidden; the repository-wide `depguard` rule enforces this
+for production code, tests, and tools.
+
 ## Build and test
 
 ```

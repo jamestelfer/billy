@@ -2,7 +2,8 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/json"
+	"encoding/json/jsontext"
+	json "encoding/json/v2"
 	"fmt"
 	"net/http"
 	"os"
@@ -72,7 +73,7 @@ func (s *captureStore) Save(meta captureMetadata, body []byte) (string, error) {
 		return "", fmt.Errorf("writing the captured body: %w", err)
 	}
 
-	sidecar, err := json.MarshalIndent(meta, "", "  ")
+	sidecar, err := json.Marshal(meta, jsontext.WithIndent("  "))
 	if err != nil {
 		return "", fmt.Errorf("encoding the capture metadata: %w", err)
 	}
