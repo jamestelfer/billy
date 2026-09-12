@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -45,6 +46,28 @@ func TestRunHelpFlagPrintsUsageAndSucceeds(t *testing.T) {
 
 	require.Equal(t, 0, code, "run(--help) exit code = %d, want 0 (stderr: %s)", code, stderr.String())
 	assert.Contains(t, stdout.String(), "billy", "run(--help) stdout = %q, want the command name in it", stdout.String())
+}
+
+func TestRunFailsBeforeServingWhenBookDescriptorSettingIsMissing(t *testing.T) {
+	t.Setenv(envBookDescriptor, "")
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"billy"}, &stdout, &stderr)
+
+	require.Equal(t, exitFailure, code)
+	assert.Contains(t, stderr.String(), envBookDescriptor)
+}
+
+func TestRunFailsBeforeServingWhenBookMediaIsMissing(t *testing.T) {
+	descriptorName := filepath.Join(t.TempDir(), "book.json")
+	require.NoError(t, os.WriteFile(descriptorName, []byte(`{"title":"Story","mp3":"missing.mp3"}`), 0o600))
+	t.Setenv(envBookDescriptor, descriptorName)
+	var stdout, stderr bytes.Buffer
+
+	code := run([]string{"billy"}, &stdout, &stderr)
+
+	require.Equal(t, exitFailure, code)
+	assert.Contains(t, stderr.String(), "book media")
 }
 
 func TestRunUnknownFlagFailsWithDiagnostic(t *testing.T) {

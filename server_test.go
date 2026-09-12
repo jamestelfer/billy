@@ -15,7 +15,7 @@ import (
 // Structural: never ship a bare http.Server. A public listener with no header
 // or idle timeout is a slowloris target.
 func TestNewHTTPServerSetsTimeouts(t *testing.T) {
-	srv := newHTTPServer(newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t)))
+	srv := newHTTPServer(newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t), mustBook(t)))
 
 	assert.NotEqual(t, 0, srv.ReadHeaderTimeout, "ReadHeaderTimeout is unset")
 	assert.NotEqual(t, 0, srv.IdleTimeout, "IdleTimeout is unset")
@@ -25,7 +25,7 @@ func TestNewHTTPServerSetsTimeouts(t *testing.T) {
 // request — and returning cleanly when its context is cancelled. tsnet
 // supplies the listener in production; here a loopback listener stands in, so
 // the wiring is exercised without a tailnet.
-func TestServeAnswersHealthzAndShutsDownOnContextCancel(t *testing.T) {
+func TestServeAnswersHealthzAndMediaAndShutsDownOnContextCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 
@@ -33,7 +33,8 @@ func TestServeAnswersHealthzAndShutsDownOnContextCancel(t *testing.T) {
 	ln, err := lc.Listen(ctx, "tcp", "127.0.0.1:0")
 	require.NoError(t, err, "Listen() error = %v", err)
 
-	router := newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t))
+	configuredBook := bookWithMedia(t, []byte("0123456789"))
+	router := newRouter(testLogger(), mustCaptureStore(t), mustVerifier(t), configuredBook)
 	served := make(chan error, 1)
 	go func() {
 		served <- serve(ctx, ln, router, testLogger())
@@ -47,6 +48,18 @@ func TestServeAnswersHealthzAndShutsDownOnContextCancel(t *testing.T) {
 	_, _ = io.Copy(io.Discard, resp.Body)
 
 	assert.Equal(t, http.StatusOK, resp.StatusCode, "GET /healthz status = %d, want %d", resp.StatusCode, http.StatusOK)
+
+	mediaReq, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+ln.Addr().String()+"/media/book.mp3", nil)
+	require.NoError(t, err)
+	mediaReq.Header.Set("Range", "bytes=3-6")
+	mediaResp, err := http.DefaultClient.Do(mediaReq)
+	require.NoError(t, err)
+	defer func() { _ = mediaResp.Body.Close() }()
+	mediaBody, err := io.ReadAll(mediaResp.Body)
+	require.NoError(t, err)
+	assert.Equal(t, http.StatusPartialContent, mediaResp.StatusCode)
+	assert.Equal(t, "audio/mpeg", mediaResp.Header.Get("Content-Type"))
+	assert.Equal(t, "3456", string(mediaBody))
 
 	cancel()
 	select {

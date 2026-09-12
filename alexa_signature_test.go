@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/jamestelfer/billy/pkg/alexaverify"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -30,10 +31,66 @@ func (f handlerRoundTripFunc) RoundTrip(request *http.Request) (*http.Response, 
 	return f(request)
 }
 
-// TestAlexaAcceptsAValidSignedRequest is the full Phase 3 tracer bullet: a
-// generated root -> intermediate -> leaf chain is fetched over TLS, the exact
-// request bytes verify, skill handling runs, and those same bytes are captured.
+// TestAlexaAcceptsAValidSignedRequest exercises the complete verified playback
+// path: a generated certificate chain is fetched over TLS, the exact request
+// bytes verify and are captured, and skill dispatch returns a Play directive.
 func TestAlexaAcceptsAValidSignedRequest(t *testing.T) {
+	verifier, leafKey, fetches := newHandlerTestVerifier(t)
+	store, captureDir := newTestCapture(t)
+
+	body := []byte(samplePlayRequest)
+	headers := signAlexaBody(t, leafKey, body)
+
+	configuredBook := mustBook(t)
+	recorder := postAlexa(t, newRouter(testLogger(), store, verifier, configuredBook), string(body), headers)
+	require.Equal(t, http.StatusOK, recorder.Code, "POST /alexa status = %d, want %d; body = %q", recorder.Code, http.StatusOK, recorder.Body.String())
+	require.EqualValues(t, 1, fetches.Load(), "certificate fetches")
+
+	var response alexaEnvelope
+	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response), "decoding Alexa response")
+	require.NotNil(t, response.Response.OutputSpeech)
+	require.Equal(t, "Playing Test Book.", response.Response.OutputSpeech.Text)
+	require.Len(t, response.Response.Directives, 1)
+	require.Equal(t, "AudioPlayer.Play", response.Response.Directives[0].Type)
+	require.Equal(t, staticBookToken, response.Response.Directives[0].AudioItem.Stream.Token)
+
+	stem := onlyCapturedStem(t, captureDir)
+	captured, err := os.ReadFile(filepath.Join(captureDir, stem+".body"))
+	require.NoError(t, err, "reading captured body: %v", err)
+	require.Equal(t, string(body), string(captured), "captured body differs from the signed wire bytes")
+}
+
+func TestAlexaAcceptsSignedAudioPlayerLifecycleEvents(t *testing.T) {
+	verifier, leafKey, fetches := newHandlerTestVerifier(t)
+	store, _ := newTestCapture(t)
+	router := newRouter(testLogger(), store, verifier, mustBook(t))
+
+	for _, eventType := range []string{
+		"AudioPlayer.PlaybackStarted",
+		"AudioPlayer.PlaybackStopped",
+		"AudioPlayer.PlaybackFinished",
+		"AudioPlayer.PlaybackNearlyFinished",
+		"AudioPlayer.PlaybackFailed",
+	} {
+		t.Run(eventType, func(t *testing.T) {
+			body := []byte(`{"version":"1.0","request":{"type":"` + eventType + `","requestId":"request-id",` +
+				`"timestamp":"2026-08-30T01:02:03Z","token":"` + staticBookToken + `","offsetInMilliseconds":42000,` +
+				`"error":{"type":"MEDIA_ERROR_UNKNOWN","message":"detail"}}}`)
+
+			recorder := postAlexa(t, router, string(body), signAlexaBody(t, leafKey, body))
+
+			require.Equal(t, http.StatusOK, recorder.Code)
+			var response alexaEnvelope
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			assert.Empty(t, response.Response.Directives)
+			assert.Nil(t, response.Response.OutputSpeech)
+		})
+	}
+	assert.EqualValues(t, 1, fetches.Load(), "the verified lifecycle requests should reuse the certificate cache")
+}
+
+func newHandlerTestVerifier(t *testing.T) (*alexaverify.Verifier, *rsa.PrivateKey, *atomic.Int64) {
+	t.Helper()
 	roots, leafKey, bundle := generateHandlerTestChain(t, testNow)
 
 	var fetches atomic.Int64
@@ -64,30 +121,19 @@ func TestAlexaAcceptsAValidSignedRequest(t *testing.T) {
 		alexaverify.WithHTTPClient(&client),
 	)
 	require.NoError(t, err, "alexaverify.New: %v", err)
-	store, captureDir := newTestCapture(t)
+	return verifier, leafKey, &fetches
+}
 
-	body := []byte(sampleLaunchRequest)
+func signAlexaBody(t *testing.T, leafKey *rsa.PrivateKey, body []byte) map[string]string {
+	t.Helper()
 	digest := sha256.Sum256(body)
 	signature, err := rsa.SignPKCS1v15(rand.Reader, leafKey, crypto.SHA256, digest[:])
 	require.NoError(t, err, "signing request: %v", err)
-	headers := map[string]string{
+	return map[string]string{
 		"Signature-256":         base64.StdEncoding.EncodeToString(signature),
 		"SignatureCertChainUrl": "https://s3.amazonaws.com/echo.api/echo-api-cert-test.pem",
 		"Content-Type":          "application/json",
 	}
-
-	recorder := postAlexa(t, newRouter(testLogger(), store, verifier), string(body), headers)
-	require.Equal(t, http.StatusOK, recorder.Code, "POST /alexa status = %d, want %d; body = %q", recorder.Code, http.StatusOK, recorder.Body.String())
-	require.EqualValues(t, 1, fetches.Load(), "certificate fetches")
-
-	var response alexaEnvelope
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response), "decoding Alexa response")
-	require.Equal(t, spokenConfirmation, response.Response.OutputSpeech.Text, "spoken response = %q, want %q", response.Response.OutputSpeech.Text, spokenConfirmation)
-
-	stem := onlyCapturedStem(t, captureDir)
-	captured, err := os.ReadFile(filepath.Join(captureDir, stem+".body"))
-	require.NoError(t, err, "reading captured body: %v", err)
-	require.Equal(t, string(body), string(captured), "captured body differs from the signed wire bytes")
 }
 
 func generateHandlerTestChain(t *testing.T, now time.Time) (*x509.CertPool, *rsa.PrivateKey, []byte) {

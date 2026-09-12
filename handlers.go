@@ -10,18 +10,45 @@ import (
 
 // newRouter builds the service's HTTP routes.
 //
-// The route set is deliberately tiny and locked: /healthz for liveness and
-// /alexa for the skill endpoint. Anything else is a 404 from the mux.
+// The route set is deliberately tiny and locked: /healthz for liveness,
+// /alexa for the skill endpoint, and one fixed public media representation.
+// Anything else is a 404 from the mux.
 //
-// The method is part of the pattern, so anything but POST on /alexa is a 405
-// from the mux and never reaches the verifier. Request verification is wired
-// to this one route and no other: /healthz must stay reachable by a probe that
-// has no Alexa signature to offer.
-func newRouter(log *slog.Logger, store *captureStore, verifier *alexaverify.Verifier) http.Handler {
+// The method is part of each pattern, so unsupported methods never reach a
+// handler. Request verification is wired to /alexa and nowhere else: health
+// probes and Alexa's media fetches have no request signature to offer.
+func newRouter(log *slog.Logger, store *captureStore, verifier *alexaverify.Verifier, configuredBook *book) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", handleHealthz)
-	mux.Handle("POST /alexa", handleAlexa(log, store, verifier))
+	mux.Handle("GET /media/book.mp3", handleMedia(log, configuredBook))
+	mux.Handle("POST /alexa", handleAlexa(log, store, verifier, configuredBook))
 	return mux
+}
+
+func handleMedia(log *slog.Logger, configuredBook *book) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		media, err := configuredBook.openMedia()
+		if err != nil {
+			log.Error("opening the configured book media", slog.Any("error", err))
+			http.Error(w, "media unavailable", http.StatusInternalServerError)
+			return
+		}
+		defer func() {
+			if err := media.Close(); err != nil {
+				log.Error("closing the configured book media", slog.Any("error", err))
+			}
+		}()
+
+		info, err := media.Stat()
+		if err != nil {
+			log.Error("inspecting the configured book media", slog.Any("error", err))
+			http.Error(w, "media unavailable", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "audio/mpeg")
+		http.ServeContent(w, r, "book.mp3", info.ModTime(), media)
+	}
 }
 
 // writeAlexaResponse marshals the envelope before writing anything, so a

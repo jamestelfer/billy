@@ -2,7 +2,7 @@
 
 A self-hosted Alexa skill endpoint for [Audiobookshelf](https://www.audiobookshelf.org/), shipped as a single static executable with Tailscale Funnel ingress embedded via `tsnet`.
 
-**Current scope**: reach the box from the public internet over Funnel, verify that each request really came from Alexa, and capture the raw bytes of every verified request to disk. Signature verification is enforced on `/alexa`; there is no ABS integration or AudioPlayer support yet. Those are separate, later plans. See `setup.md` and the signing plan in the wiki.
+**Current scope**: reach the box from the public internet over Funnel, verify and capture Alexa requests, and play one externally configured, non-sensitive MP3 with basic AudioPlayer transport handling. Signature verification is enforced on `/alexa`; there is no Audiobookshelf integration, listener identity, or durable playback state yet. See `setup.md` and the static-play plan in the wiki.
 
 ## Go version
 
@@ -31,8 +31,10 @@ Alexa skill recipes (`skill-render`, `skill-deploy`, `skill-talk`,
 `skill-corpus`) need `ask-cli` and `jq` on PATH; they are not part of `verify`
 and never run in CI.
 
-`just start` needs `BILLY_SKILL_ENDPOINT`: readiness is checked over the public
-Funnel URL, as the tsnet listener has no loopback address to poll.
+`just start` needs `BILLY_SKILL_ENDPOINT` and `BILLY_BOOK_DESCRIPTOR`:
+readiness is checked over the public Funnel URL, as the tsnet listener has no
+loopback address to poll, and startup validates the external book before
+opening that listener.
 
 Tool versions (Go, golangci-lint, goreleaser, just, wait4x) are pinned in `mise.toml`; run `mise install` to match CI. CI reads the same versions via `mise current`.
 
@@ -90,7 +92,7 @@ Use Conventional Commits for all commit messages and PR titles. `pr-title.yml` e
 - Only verified requests are captured.
 - A capture failure must not fail the request. Log it, still return a valid envelope.
 - The Tailscale auth key comes from the environment only. Never a flag, a file, or a log line.
-- Configuration is environment variables, not flags.
+- Service configuration is environment variables, not flags. The external book descriptor is runtime content named by `BILLY_BOOK_DESCRIPTOR`.
 - `http.Server` always gets an explicit `ReadHeaderTimeout` and `IdleTimeout`.
 
 Signature verification is mandatory and has no disable switch. `/alexa` accepts only fresh requests whose `Signature-256` validates through an approved S3 certificate URL to the system roots; only those requests reach capture and skill handling.

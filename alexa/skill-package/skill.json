@@ -5,21 +5,21 @@
       "locales": {
         "en-US": {
           "name": "billy",
-          "summary": "Development endpoint that captures raw Alexa requests.",
-          "description": "A development-only skill for jamestelfer/billy. It points at a self-hosted endpoint reached over Tailscale Funnel, which records the raw bytes of every request Alexa sends so that signature verification can be built against a real corpus. It plays nothing and is never submitted for certification.",
+          "summary": "Play one configured audiobook from a self-hosted endpoint.",
+          "description": "A development skill for jamestelfer/billy. It plays one externally configured, non-sensitive audiobook through a self-hosted endpoint reached over Tailscale Funnel.",
           "examplePhrases": [
-            "Alexa, open audiobookshelf",
-            "Alexa, ask audiobookshelf to capture a request",
-            "Alexa, ask audiobookshelf to test the endpoint"
+            "Alexa, open billy",
+            "Alexa, ask billy to play the hobbit",
+            "Alexa, ask billy to listen to the hobbit"
           ],
           "keywords": [
-            "audiobookshelf",
+            "audiobook",
             "development"
           ]
         }
       },
       "isAvailableWorldwide": true,
-      "testingInstructions": "Development only. The endpoint does not verify request signatures yet, so this skill must not be submitted for certification.",
+      "testingInstructions": "Development only. Ask Billy to play the one title configured by the operator.",
       "category": "STREAMING_SERVICE"
     },
     "apis": {
@@ -28,7 +28,8 @@
           "uri": "@BILLY_SKILL_ENDPOINT@",
           "sslCertificateType": "Trusted"
         }
-      }
+      },
+      "audioPlayer": {}
     },
     "privacyAndCompliance": {
       "locales": {

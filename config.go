@@ -8,10 +8,10 @@ import (
 )
 
 // config is the service's runtime configuration, resolved entirely from the
-// environment. There are no configuration files and no flags beyond
-// --version: everything a host needs to set is an environment variable, which
-// is the one mechanism that works identically under systemd, launchd and the
-// Windows Service Manager.
+// environment. Service settings are not read from a configuration file and
+// there are no flags beyond --version: everything a host needs to set is an
+// environment variable. The external book descriptor is content named by one
+// of those settings, not a second source of service configuration.
 type config struct {
 	// Hostname is the tailnet node name, and so decides the Funnel URL. It
 	// must be stable across restarts: the URL is pinned in the Alexa
@@ -34,6 +34,10 @@ type config struct {
 	// startup. Warming is best effort and never delays readiness.
 	CertChainURL string
 
+	// BookDescriptor names the external JSON descriptor for the one book this
+	// process serves. It is required whenever the service starts.
+	BookDescriptor string
+
 	// Addr is the Funnel listen address. Funnel permits only 443, 8443 and
 	// 10000, and Alexa requires 443.
 	Addr string
@@ -42,11 +46,12 @@ type config struct {
 // Environment variable names. TS_AUTHKEY follows Tailscale's own convention
 // so an operator who already has a key exported does not have to rename it.
 const (
-	envAuthKey      = "TS_AUTHKEY"
-	envHostname     = "BILLY_HOSTNAME"
-	envStateDir     = "BILLY_STATE_DIR"
-	envCaptureDir   = "BILLY_CAPTURE_DIR"
-	envCertChainURL = "BILLY_CERT_CHAIN_URL"
+	envAuthKey        = "TS_AUTHKEY"
+	envHostname       = "BILLY_HOSTNAME"
+	envStateDir       = "BILLY_STATE_DIR"
+	envCaptureDir     = "BILLY_CAPTURE_DIR"
+	envCertChainURL   = "BILLY_CERT_CHAIN_URL"
+	envBookDescriptor = "BILLY_BOOK_DESCRIPTOR"
 )
 
 const (
@@ -71,12 +76,16 @@ const (
 // not — Go's permission bits are largely inert there.
 func loadConfig(getenv func(string) string, userConfigDir string) (config, error) {
 	cfg := config{
-		Hostname:     orDefault(getenv(envHostname), defaultHostname),
-		AuthKey:      getenv(envAuthKey),
-		StateDir:     orDefault(getenv(envStateDir), filepath.Join(userConfigDir, "billy", "tsnet")),
-		CaptureDir:   orDefault(getenv(envCaptureDir), filepath.Join(userConfigDir, "billy", "capture")),
-		CertChainURL: orDefault(getenv(envCertChainURL), defaultCertChainURL),
-		Addr:         ":443",
+		Hostname:       orDefault(getenv(envHostname), defaultHostname),
+		AuthKey:        getenv(envAuthKey),
+		StateDir:       orDefault(getenv(envStateDir), filepath.Join(userConfigDir, "billy", "tsnet")),
+		CaptureDir:     orDefault(getenv(envCaptureDir), filepath.Join(userConfigDir, "billy", "capture")),
+		CertChainURL:   orDefault(getenv(envCertChainURL), defaultCertChainURL),
+		BookDescriptor: getenv(envBookDescriptor),
+		Addr:           ":443",
+	}
+	if strings.TrimSpace(cfg.BookDescriptor) == "" {
+		return config{}, fmt.Errorf("%s is required and must name a book descriptor", envBookDescriptor)
 	}
 	if err := validHostname(cfg.Hostname); err != nil {
 		return config{}, fmt.Errorf("%s: %w", envHostname, err)
@@ -120,6 +129,7 @@ func (c config) LogValue() slog.Value {
 		slog.String("state_dir", c.StateDir),
 		slog.String("capture_dir", c.CaptureDir),
 		slog.String("cert_chain_url", c.CertChainURL),
+		slog.String("book_descriptor", c.BookDescriptor),
 		slog.String("addr", c.Addr),
 	)
 }
