@@ -2,7 +2,9 @@ package main
 
 import (
 	"crypto/rand"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -68,19 +70,40 @@ func (s *captureStore) Save(meta captureMetadata, body []byte) (string, error) {
 		return "", err
 	}
 
-	if err := os.WriteFile(filepath.Join(s.dir, stem+".body"), body, 0o600); err != nil {
-		return "", fmt.Errorf("writing the captured body: %w", err)
-	}
-
-	sidecar, err := json.MarshalIndent(meta, "", "  ")
+	// Encode before writing either file. JSON v2 rejects invalid UTF-8, which
+	// can occur in otherwise valid HTTP header values; an encoding failure must
+	// not leave an orphaned body in the capture corpus.
+	sidecar, err := json.Marshal(meta, jsontext.WithIndent("  "))
 	if err != nil {
 		return "", fmt.Errorf("encoding the capture metadata: %w", err)
 	}
-	if err := os.WriteFile(filepath.Join(s.dir, stem+".json"), sidecar, 0o600); err != nil {
-		return "", fmt.Errorf("writing the capture metadata: %w", err)
+
+	bodyPath := filepath.Join(s.dir, stem+".body")
+	sidecarPath := filepath.Join(s.dir, stem+".json")
+	if err := os.WriteFile(bodyPath, body, 0o600); err != nil {
+		return "", errors.Join(
+			fmt.Errorf("writing the captured body: %w", err),
+			removeCaptureFiles(bodyPath),
+		)
+	}
+	if err := os.WriteFile(sidecarPath, sidecar, 0o600); err != nil {
+		return "", errors.Join(
+			fmt.Errorf("writing the capture metadata: %w", err),
+			removeCaptureFiles(bodyPath, sidecarPath),
+		)
 	}
 
 	return stem, nil
+}
+
+func removeCaptureFiles(paths ...string) error {
+	var cleanupErr error
+	for _, path := range paths {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			cleanupErr = errors.Join(cleanupErr, fmt.Errorf("removing partial capture %s: %w", path, err))
+		}
+	}
+	return cleanupErr
 }
 
 // captureStem builds a time-ordered, collision-free, cross-platform-legal

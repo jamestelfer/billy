@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -34,7 +34,7 @@ func TestSaveWritesTheBodyByteForByte(t *testing.T) {
 
 	// Deliberately ugly: trailing whitespace, CRLF, duplicate keys and a
 	// non-ASCII escape all survive a byte-exact write and none survive a
-	// round trip through encoding/json.
+	// round trip through a JSON codec.
 	raw := []byte("{\r\n  \"version\" : \"1.0\",\r\n  \"a\": 1, \"a\": 2,\r\n  \"t\": \"caf\\u00e9\"  \r\n}\r\n")
 
 	stem, err := store.Save(captureMetadata{ReceivedAt: time.Now().UTC()}, raw)
@@ -42,6 +42,23 @@ func TestSaveWritesTheBodyByteForByte(t *testing.T) {
 
 	got, _ := readCapturePair(t, dir, stem)
 	assert.Equal(t, string(raw), string(got), "persisted body = %q, want the exact bytes %q", got, raw)
+}
+
+func TestSaveLeavesNoPartialCaptureWhenMetadataEncodingFails(t *testing.T) {
+	dir := t.TempDir()
+	store, err := newCaptureStore(dir)
+	require.NoError(t, err, "newCaptureStore() error = %v", err)
+
+	meta := captureMetadata{
+		ReceivedAt: time.Now().UTC(),
+		Headers:    map[string][]string{"X-Invalid": {string([]byte{0xff})}},
+	}
+	_, err = store.Save(meta, []byte("signed body"))
+	require.Error(t, err, "Save() accepted invalid UTF-8 metadata")
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err, "reading capture directory: %v", err)
+	assert.Empty(t, entries, "failed Save() left a partial capture")
 }
 
 // The stem has to be legal on every target platform. Windows is the strictest

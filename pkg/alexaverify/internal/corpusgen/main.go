@@ -12,7 +12,8 @@ import (
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/base64"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"encoding/pem"
 	"fmt"
 	"math/big"
@@ -155,10 +156,10 @@ func writeFixture(out string, item fixture, now time.Time, key *rsa.PrivateKey) 
 	if err != nil {
 		return fmt.Errorf("signing %s: %w", item.directory, err)
 	}
-	encodedHeaders, err := json.MarshalIndent(headers{
+	encodedHeaders, err := json.Marshal(headers{
 		Signature256:        base64.StdEncoding.EncodeToString(signature),
 		CertificateChainURL: certURL,
-	}, "", "  ")
+	}, jsontext.WithIndent("  "))
 	if err != nil {
 		return fmt.Errorf("encoding headers for %s: %w", item.directory, err)
 	}
