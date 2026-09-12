@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
@@ -31,6 +31,23 @@ func TestHealthzReturns200WithNonSensitiveBody(t *testing.T) {
 	for _, secret := range []string{buildVersion(), "ts.net", "/", "\\"} {
 		assert.NotContains(t, body, secret, "GET /healthz body %q leaks %q", body, secret)
 	}
+}
+
+func TestAlexaResponseEscapesHTMLAndPreservesSpeech(t *testing.T) {
+	const speech = `<script>alert("hello")</script> & goodbye`
+	rec := httptest.NewRecorder()
+
+	writeAlexaResponse(rec, testLogger(), newAlexaEnvelope(speech))
+
+	require.Equal(t, http.StatusOK, rec.Code)
+	assert.Equal(t, "application/json; charset=utf-8", rec.Header().Get("Content-Type"))
+	assert.NotContains(t, rec.Body.String(), "<")
+	assert.NotContains(t, rec.Body.String(), ">")
+	assert.NotContains(t, rec.Body.String(), "&")
+	var envelope alexaEnvelope
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.NotNil(t, envelope.Response.OutputSpeech)
+	assert.Equal(t, speech, envelope.Response.OutputSpeech.Text)
 }
 
 func TestMediaRouteServesTheConfiguredFileAsMPEG(t *testing.T) {
