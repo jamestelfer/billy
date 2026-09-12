@@ -16,7 +16,7 @@ func TestLoadBookRejectsInvalidDescriptorsWithFieldDiagnostics(t *testing.T) {
 		want       string
 	}{
 		"malformed JSON":    {`{"title":`, "decoding book descriptor"},
-		"unknown field":     {`{"title":"Story","mp3":"book.mp3","extra":true}`, "unknown field"},
+		"unknown field":     {`{"title":"Story","mp3":"book.mp3","extra":true}`, "unknown object member name"},
 		"blank title":       {`{"title":"  ","mp3":"book.mp3"}`, "field title"},
 		"unmatchable title": {`{"title":"!!!","mp3":"book.mp3"}`, "field title"},
 		"blank media":       {`{"title":"Story","mp3":"  "}`, "field mp3"},

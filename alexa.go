@@ -1,7 +1,8 @@
 package main
 
 import (
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"io"
 	"log/slog"
@@ -80,13 +81,13 @@ type alexaStream struct {
 
 type alexaRequestEnvelope struct {
 	Session struct {
-		Attributes map[string]json.RawMessage `json:"attributes"`
+		Attributes map[string]jsontext.Value `json:"attributes"`
 	} `json:"session"`
 	Context struct {
 		AudioPlayer alexaPlayerContext `json:"AudioPlayer"`
 		System      struct {
 			Device struct {
-				SupportedInterfaces map[string]json.RawMessage `json:"supportedInterfaces"`
+				SupportedInterfaces map[string]jsontext.Value `json:"supportedInterfaces"`
 			} `json:"device"`
 		} `json:"System"`
 	} `json:"context"`

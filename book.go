@@ -2,7 +2,8 @@ package main
 
 import (
 	"bytes"
-	"encoding/json"
+	"encoding/json/jsontext"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -24,9 +25,9 @@ type book struct {
 }
 
 type bookDescriptor struct {
-	Title  string          `json:"title"`
-	Author json.RawMessage `json:"author,omitempty"`
-	MP3    string          `json:"mp3"`
+	Title  string         `json:"title"`
+	Author jsontext.Value `json:"author,omitempty"`
+	MP3    string         `json:"mp3"`
 }
 
 // loadBook validates the external descriptor and its media before the public
@@ -40,9 +41,8 @@ func loadBook(descriptorName string) (*book, error) {
 	defer func() { _ = f.Close() }()
 
 	var descriptor bookDescriptor
-	decoder := json.NewDecoder(f)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&descriptor); err != nil {
+	decoder := jsontext.NewDecoder(f)
+	if err := json.UnmarshalDecode(decoder, &descriptor, json.RejectUnknownMembers(true)); err != nil {
 		return nil, fmt.Errorf("decoding book descriptor %q: %w", descriptorName, err)
 	}
 	if err := rejectTrailingJSON(decoder); err != nil {
@@ -96,9 +96,8 @@ func loadBook(descriptorName string) (*book, error) {
 	return loaded, nil
 }
 
-func rejectTrailingJSON(decoder *json.Decoder) error {
-	var extra any
-	err := decoder.Decode(&extra)
+func rejectTrailingJSON(decoder *jsontext.Decoder) error {
+	_, err := decoder.ReadValue()
 	if errors.Is(err, io.EOF) {
 		return nil
 	}
