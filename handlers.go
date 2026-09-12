@@ -1,7 +1,7 @@
 package main
 
 import (
-	json "encoding/json/v2"
+	"encoding/json/v2"
 	"log/slog"
 	"net/http"
 

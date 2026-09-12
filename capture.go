@@ -3,7 +3,7 @@ package main
 import (
 	"crypto/rand"
 	"encoding/json/jsontext"
-	json "encoding/json/v2"
+	"encoding/json/v2"
 	"errors"
 	"fmt"
 	"net/http"

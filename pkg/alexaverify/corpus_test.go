@@ -2,7 +2,7 @@ package alexaverify
 
 import (
 	"crypto/x509"
-	json "encoding/json/v2"
+	"encoding/json/v2"
 	"os"
 	"path/filepath"
 	"slices"
