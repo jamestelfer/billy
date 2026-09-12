@@ -44,6 +44,23 @@ func TestSaveWritesTheBodyByteForByte(t *testing.T) {
 	assert.Equal(t, string(raw), string(got), "persisted body = %q, want the exact bytes %q", got, raw)
 }
 
+func TestSaveLeavesNoPartialCaptureWhenMetadataEncodingFails(t *testing.T) {
+	dir := t.TempDir()
+	store, err := newCaptureStore(dir)
+	require.NoError(t, err, "newCaptureStore() error = %v", err)
+
+	meta := captureMetadata{
+		ReceivedAt: time.Now().UTC(),
+		Headers:    map[string][]string{"X-Invalid": {string([]byte{0xff})}},
+	}
+	_, err = store.Save(meta, []byte("signed body"))
+	require.Error(t, err, "Save() accepted invalid UTF-8 metadata")
+
+	entries, err := os.ReadDir(dir)
+	require.NoError(t, err, "reading capture directory: %v", err)
+	assert.Empty(t, entries, "failed Save() left a partial capture")
+}
+
 // The stem has to be legal on every target platform. Windows is the strictest
 // and the most likely host: it rejects colons outright, which rules out a
 // bare RFC3339 timestamp.
