@@ -8,11 +8,8 @@ on:
 permissions:
   contents: read
 
-# install_args is the allow list, and this is what makes it binding: mise's
-# shims otherwise auto-install whatever is missing, which is how setup-go's
-# `go env GOPATH` came to reinstall the tools CI had just skipped. A tool CI
-# needs but does not list now fails loudly instead. Set here rather than in
-# mise.toml so local development keeps the full toolset.
+# install_args would not bind on its own: mise's shims auto-install anything
+# missing. Set here, not in mise.toml, so local development keeps every tool.
 env:
   MISE_AUTO_INSTALL: "false"
 
@@ -21,9 +18,7 @@ jobs:
     # billy targets linux, darwin and windows equally — a change that only
     # passes on one OS is not done. The matrix is the proof, so it is not
     # allowed to fail fast: a Windows-only failure must still be visible
-    # alongside a green Linux run. Building here rather than in a separate
-    # cross-compile job is deliberate: the matrix already covers every GOOS
-    # billy releases for, natively.
+    # alongside a green Linux run.
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -71,19 +66,16 @@ jobs:
           cache: true
           install_args: go just golangci-lint
 
-      # .golangci.yaml is in the key only to make it differ from the test
-      # matrix's. setup-go saves only on a primary-key miss, so a shared key
-      # lets whichever job finishes first claim it, and lint's GOCACHE has no
-      # `go build` output in it.
+      # .golangci.yaml carries no Go dependencies; it is here only to fork this
+      # key from the test matrix's, which would otherwise win the race to save.
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           cache-dependency-path: |
             go.sum
             .golangci.yaml
 
-      # install-mode: none makes the action resolve golangci-lint off PATH
-      # (mise's) and ignore `version`, so it contributes only its cache and
-      # problem matchers.
+      # install-mode: none resolves golangci-lint off PATH, leaving mise the
+      # version owner and this action just its cache and problem matchers.
       - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
         with:
           install-mode: none
