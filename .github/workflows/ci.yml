@@ -13,7 +13,9 @@ jobs:
     # billy targets linux, darwin and windows equally — a change that only
     # passes on one OS is not done. The matrix is the proof, so it is not
     # allowed to fail fast: a Windows-only failure must still be visible
-    # alongside a green Linux run.
+    # alongside a green Linux run. Building here rather than in a separate
+    # cross-compile job is deliberate: the matrix already covers every GOOS
+    # billy releases for, natively.
     name: Test (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
@@ -25,23 +27,19 @@ jobs:
         with:
           persist-credentials: false
 
-      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
-        with:
-          go-version-file: go.mod
-          cache: true
-
       - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
         with:
-          install: false
+          install: true
+          cache: true
 
-      - name: Read just version
-        id: tool-versions
-        shell: bash
-        run: echo "just=$(mise current just)" >> "$GITHUB_OUTPUT"
-
-      - uses: extractions/setup-just@53165ef7e734c5c07cb06b3c8e7b647c5aa16db3 # v4
+      # No go-version/go-version-file: setup-go then installs nothing and only
+      # wires the module and build caches around the toolchain mise put on PATH.
+      - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          just-version: ${{ steps.tool-versions.outputs.just }}
+          cache-dependency-path: go.sum
+
+      - name: Build
+        run: just build
 
       - name: Run tests
         run: just test
@@ -50,12 +48,8 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         run: go test -race ./...
 
-  build:
-    # Proves the cross-platform release matrix still builds — tsnet is the most
-    # likely place for that to break, and a snapshot build catches it without
-    # waiting for a tag. Tools come straight from mise here (go, goreleaser and
-    # just in one pass) rather than three separate setup actions.
-    name: Cross-platform build
+  lint:
+    name: Lint
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
@@ -67,30 +61,9 @@ jobs:
           install: true
           cache: true
 
-      - name: Snapshot build for the full release matrix
-        run: just xbuild
-
-  lint:
-    name: Lint
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
-        with:
-          persist-credentials: false
-
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
-          go-version-file: go.mod
-          cache: true
+          cache-dependency-path: go.sum
 
-      - uses: jdx/mise-action@1648a7812b9aeae629881980618f079932869151 # v4
-        with:
-          install: false
-
-      - name: Read tool versions
-        id: tool-versions
-        run: echo "golangci-lint=$(mise current golangci-lint)" >> "$GITHUB_OUTPUT"
-
-      - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
-        with:
-          version: v${{ steps.tool-versions.outputs.golangci-lint }}
+      - name: Run linter
+        run: just lint
