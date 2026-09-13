@@ -8,6 +8,14 @@ on:
 permissions:
   contents: read
 
+# install_args is the allow list, and this is what makes it binding: mise's
+# shims otherwise auto-install whatever is missing, which is how setup-go's
+# `go env GOPATH` came to reinstall the tools CI had just skipped. A tool CI
+# needs but does not list now fails loudly instead. Set here rather than in
+# mise.toml so local development keeps the full toolset.
+env:
+  MISE_AUTO_INSTALL: "false"
+
 jobs:
   test:
     # billy targets linux, darwin and windows equally — a change that only
@@ -31,6 +39,7 @@ jobs:
         with:
           install: true
           cache: true
+          install_args: go just golangci-lint
 
       # No go-version/go-version-file: setup-go then installs nothing and only
       # wires the module and build caches around the toolchain mise put on PATH.
@@ -60,6 +69,7 @@ jobs:
         with:
           install: true
           cache: true
+          install_args: go just golangci-lint
 
       # .golangci.yaml is in the key only to make it differ from the test
       # matrix's. setup-go saves only on a primary-key miss, so a shared key
