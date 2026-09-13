@@ -31,6 +31,11 @@ jobs:
         with:
           install: true
           cache: true
+          # Only the tools CI runs. Installing everything in mise.toml pulls in
+          # node + npm:ask-cli, which mise 2026.9.6 cannot install
+          # non-interactively (aube reports `user aborted`), and which only the
+          # alexa/ recipes need. Same list in every job so they share a cache.
+          install_args: go just golangci-lint
 
       # No go-version/go-version-file: setup-go then installs nothing and only
       # wires the module and build caches around the toolchain mise put on PATH.
@@ -60,10 +65,19 @@ jobs:
         with:
           install: true
           cache: true
+          # Only the tools CI runs. Installing everything in mise.toml pulls in
+          # node + npm:ask-cli, which mise 2026.9.6 cannot install
+          # non-interactively (aube reports `user aborted`), and which only the
+          # alexa/ recipes need. Same list in every job so they share a cache.
+          install_args: go just golangci-lint
 
       - uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c # v6
         with:
           cache-dependency-path: go.sum
 
-      - name: Run linter
-        run: just lint
+      # install-mode: none makes the action resolve golangci-lint off PATH
+      # (mise's) and ignore `version`, so it contributes only its cache and
+      # problem matchers.
+      - uses: golangci/golangci-lint-action@82606bf257cbaff209d206a39f5134f0cfbfd2ee # v9
+        with:
+          install-mode: none
