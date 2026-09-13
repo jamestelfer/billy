@@ -4,6 +4,7 @@ golangci-lint = "2.13.2"
 goreleaser    = "2.16.0"
 just          = "1.49.0"
 node          = "24"
-"npm:ask-cli" = "2.30.7"
+# aube blocks packages under 1000 weekly npm downloads; ask-cli sits at ~626.
+"npm:ask-cli" = { version = "2.30.7", allow_low_downloads = true }
 # Not in the mise registry; the release assets are plain tarballs, so ubi.
 "ubi:wait4x/wait4x" = "3.7.1"
