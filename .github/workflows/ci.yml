@@ -8,11 +8,6 @@ on:
 permissions:
   contents: read
 
-# install_args would not bind on its own: mise's shims auto-install anything
-# missing. Set here, not in mise.toml, so local development keeps every tool.
-env:
-  MISE_AUTO_INSTALL: "false"
-
 jobs:
   test:
     # billy targets linux, darwin and windows equally — a change that only
