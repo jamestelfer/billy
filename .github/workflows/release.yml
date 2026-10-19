@@ -29,7 +29,8 @@ jobs:
       # convention — nothing passed.
       token-source: octo-sts
       # billy is a private service shipped as a plain executable: the GitHub
-      # release is the only distribution channel. Everything else is opted out.
+      # release and the Nix recipe (jamestelfer/nixpkgs) are the distribution
+      # channels. Everything else is opted out.
       disable-npm: true # no npm package published
       disable-docker-login: true # no container image published
       disable-homebrew: true # no Homebrew cask

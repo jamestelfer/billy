@@ -33,6 +33,18 @@ archives:
       - goos: windows
         formats: [zip]
 
+nix:
+  - name: billy
+    repository:
+      owner: jamestelfer
+      name: nixpkgs
+      token: "{{ .Env.NIX_GITHUB_TOKEN }}"
+    # skip publishing the recipe on a prerelease, as for the cask.
+    skip_upload: auto
+    homepage: "https://github.com/jamestelfer/billy"
+    description: "Audiobookshelf skill for Amazon Alexa"
+    license: "asl20"
+
 changelog:
   use: github-native
   sort: asc
