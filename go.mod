@@ -4,6 +4,7 @@ go 1.27
 
 require (
 	github.com/gkampitakis/go-snaps v0.5.23
+	github.com/jamestelfer/billy/pkg/alexaverify v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.12.1
 	github.com/urfave/cli/v3 v3.11.0
 	tailscale.com v1.102.3
@@ -66,3 +67,5 @@ require (
 	golang.zx2c4.com/wireguard/windows v0.5.3 // indirect
 	gvisor.dev/gvisor v0.0.0-20260224225140-573d5e7127a8 // indirect
 )
+
+replace github.com/jamestelfer/billy/pkg/alexaverify => ./pkg/alexaverify

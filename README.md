@@ -77,4 +77,10 @@ just skill-corpus    # replay scripted utterances to fill the capture directory
 just skill-talk      # interactive dialog with the deployed skill
 ```
 
+## Alexa request verification library
+
+`pkg/alexaverify` is a standalone Go module that verifies Alexa request
+signatures and depends only on the standard library. See
+[its README](pkg/alexaverify/README.md).
+
 See `AGENTS.md` for conventions and `setup.md` for the implementation plan.
