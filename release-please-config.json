@@ -9,6 +9,13 @@
     ".": {
       "release-type": "go",
       "draft": true
+    },
+    "pkg/alexaverify": {
+      "release-type": "go",
+      "component": "pkg/alexaverify",
+      "include-component-in-tag": true,
+      "tag-separator": "/",
+      "bump-minor-pre-major": true
     }
   }
 }

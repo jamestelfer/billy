@@ -1,0 +1,25 @@
+billy
+Copyright 2026 James Telfer
+
+This product includes software developed by Amazon.com, Inc. or its affiliates.
+
+The package pkg/alexaverify is a Go port of the Alexa request verification
+performed by two of Amazon's own Alexa Skills Kit SDKs. Constant values,
+validation rules and test vectors are taken from:
+
+  alexa/alexa-skills-kit-sdk-for-java
+  commit e7f16b0523b24a34a7971d4df7ecbb48b4539639
+  ask-sdk-servlet-support/src/com/amazon/ask/servlet/
+  Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  Licensed under the Apache License, Version 2.0.
+
+  alexa/alexa-skills-kit-sdk-for-nodejs
+  commit ea88cef4a72a44abf1aff6083472ba08a665862a
+  ask-sdk-express-adapter/lib/verifier/
+  Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
+  Licensed under the Apache License, Version 2.0.
+
+Neither tree is vendored into this repository. Files that carry ported logic
+or ported test vectors name the specific upstream file in a comment.
+
+A copy of the Apache License, Version 2.0 is in LICENSE.

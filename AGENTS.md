@@ -20,10 +20,11 @@ just verify    # fmt + build + lint + test (run before committing)
 just build     # produces dist/billy
 just start     # run billy in the background, capturing to dist/capture
 just stop      # stop it and wait for the tsnet state lock to be released
-just test      # go test ./...
+just test      # go test ./... in every module
 just snapshots # regenerate go-snaps golden files for review
 just fmt       # gofmt -w .
-just lint      # golangci-lint run ./...
+just lint      # golangci-lint run ./... in every module
+just tidy      # go mod tidy in every module
 just xbuild    # goreleaser snapshot build across the full release matrix
 ```
 
@@ -68,6 +69,8 @@ Linux, macOS and Windows on `amd64` and `arm64` are equal targets, all tested in
 
 `pkg/alexaverify/` is a **public** package: Alexa request verification, whose exported surface is a semver contract. Everything else is application logic in the repository root, and `main` consumes `alexaverify` as an ordinary external consumer.
 
+`pkg/alexaverify` is its **own Go module** (`github.com/jamestelfer/billy/pkg/alexaverify`) so consumers do not inherit billy's dependency graph. Keep it standard-library only outside its tests. The root module requires it through a `replace` to `./pkg/alexaverify`, so billy always builds the verifier from the same commit. `./...` stops at a module boundary: run Go tooling in each module (the `just` recipes loop over `modules`), and register any new nested module in the justfile, CI and release-please. Each module needs its own `LICENSE` and `NOTICE`, because a module zip contains only the files under that module's directory.
+
 The Alexa skill is managed from files, not the developer console: `just
 skill-deploy` renders `alexa/skill-package` and uploads it, `just skill-corpus`
 replays scripted utterances to fill the capture directory. See
@@ -84,6 +87,8 @@ Use Conventional Commits for all commit messages and PR titles. `pr-title.yml` e
 | `feat: <description>` | new user-visible feature (minor bump) |
 | `fix: <description>` | bug fix (patch bump) |
 | `chore:`, `docs:`, `refactor:`, `test:`, `ci:` | maintenance, no release |
+
+release-please manages two packages. The root package (`v*` tags, built by goreleaser) receives every commit, including changes to the verifier, because billy embeds it. `pkg/alexaverify` receives only commits that touch its directory and is tagged `pkg/alexaverify/vX.Y.Z`, the form the Go module proxy requires. It has no build artifacts; once release-please creates its tag, the draft release can be published by hand.
 
 ## Key conventions
 

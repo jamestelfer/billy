@@ -1,17 +1,26 @@
 # Run all checks before committing
 verify: fmt build lint test
 
+# Every Go module in the repository. pkg/alexaverify is its own module so
+# consumers do not inherit billy's dependencies, and ./... stops at a module
+# boundary: anything that walks packages has to visit each module in turn.
+modules := ". pkg/alexaverify"
+
 # Format all Go source files
 fmt:
     gofmt -w .
 
 # Run all tests
 test *args:
-    go test ./... {{args}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for m in {{modules}}; do (cd "$m" && go test ./... {{args}}); done
 
 # Regenerate go-snaps golden files; always review and commit the diff
 snapshots *args:
-    UPDATE_SNAPS=true go test ./... {{args}}
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for m in {{modules}}; do (cd "$m" && UPDATE_SNAPS=true go test ./... {{args}}); done
 
 # Build the binary
 build *args:
@@ -22,7 +31,15 @@ build *args:
 
 # Run linter
 lint:
-    golangci-lint run ./...
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for m in {{modules}}; do (cd "$m" && golangci-lint run ./...); done
+
+# Tidy every module's go.mod and go.sum
+tidy:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    for m in {{modules}}; do (cd "$m" && go mod tidy); done
 
 # Cross-platform snapshot build for every release matrix target (via goreleaser)
 xbuild *args:
