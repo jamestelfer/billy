@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.2.1](https://github.com/jamestelfer/billy/compare/v0.2.0...v0.2.1) (2026-10-19)
+
+
+### Bug Fixes
+
+* **ci:** publish a Nix recipe ([#11](https://github.com/jamestelfer/billy/issues/11)) ([e5906f3](https://github.com/jamestelfer/billy/commit/e5906f339720c550410e2ce7dd5c4fa68249fbb7))
+
 ## [0.2.0](https://github.com/jamestelfer/billy/compare/v0.1.0...v0.2.0) (2026-10-11)
 
 
