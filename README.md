@@ -11,6 +11,93 @@ Funnel — no reverse proxy, no separate `tailscaled`, no cloud function.
 > non-sensitive MP3 on an AudioPlayer-capable Alexa device with pause, resume,
 > stop, and lifecycle handling. There is no Audiobookshelf integration yet.
 
+## Installation
+
+Pre-built binaries for Linux, macOS, and Windows (amd64 and arm64) are published to
+[GitHub Releases](https://github.com/jamestelfer/billy/releases). Every archive
+carries a build provenance attestation; see [Verifying releases](#verifying-releases).
+
+<details>
+<summary><strong>mise (recommended)</strong></summary>
+
+[mise](https://mise.jdx.dev/) installs from GitHub Releases and verifies the
+artifact's checksum and build provenance attestation:
+
+```sh
+mise use -g github:jamestelfer/billy
+```
+
+</details>
+
+<details>
+<summary><strong>Nix</strong></summary>
+
+```sh
+nix profile install github:jamestelfer/nixpkgs#billy
+```
+
+</details>
+
+<details>
+<summary><strong>Manual download</strong></summary>
+
+Download the archive for your platform, verify its provenance, and put the binary on your `PATH`:
+
+```sh
+OS=linux ARCH=amd64   # or darwin/windows, arm64
+curl -fsSLO "https://github.com/jamestelfer/billy/releases/latest/download/billy_${OS}_${ARCH}.tar.gz"
+gh attestation verify "billy_${OS}_${ARCH}.tar.gz" --repo jamestelfer/billy \
+  --signer-workflow chinmina/.github/.github/workflows/goreleaser-release.yml
+tar -xzf "billy_${OS}_${ARCH}.tar.gz" billy
+install -m 0755 billy ~/.local/bin/
+```
+
+Windows archives are `.zip`.
+
+</details>
+
+<details>
+<summary><strong>go install</strong></summary>
+
+Builds from source take their version from the Go module build info.
+
+```sh
+go install github.com/jamestelfer/billy@latest
+```
+
+</details>
+
+## Verifying releases
+
+Release archives carry a
+[build provenance attestation](https://docs.github.com/en/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds)
+created with [Sigstore](https://www.sigstore.dev/) keyless signing. Each archive
+is bound, by digest, to the source commit and the workflow run that built it.
+No long-lived signing key exists.
+
+Verify a downloaded archive with the [GitHub CLI](https://cli.github.com/) (2.49.0 or later):
+
+```sh
+gh attestation verify billy_linux_amd64.tar.gz --repo jamestelfer/billy \
+  --signer-workflow chinmina/.github/.github/workflows/goreleaser-release.yml
+```
+
+`--repo` checks the source repository. `--signer-workflow` is required because
+the archives are signed by the shared release workflow in `chinmina/.github`,
+not by a workflow in this repository.
+
+`checksums.txt` lists every archive. After downloading it alongside an archive, check with
+`sha256sum --check --ignore-missing checksums.txt`, or `shasum -a 256 --check --ignore-missing checksums.txt` on macOS.
+
+Releases are immutable: once published, their assets cannot be changed and
+their tag cannot be moved. GitHub records a release attestation of the tag,
+commit, and every asset. Check a downloaded file against it with GitHub CLI
+2.81.0 or later:
+
+```sh
+gh release verify-asset v0.2.1 billy_linux_amd64.tar.gz --repo jamestelfer/billy
+```
+
 ## Build
 
 ```
@@ -18,8 +105,6 @@ mise install   # match the pinned toolchain
 just verify    # fmt + build + lint + test
 just build     # produces dist/billy
 ```
-
-Releases ship Linux, macOS and Windows builds for both `amd64` and `arm64`.
 
 ## Run
 

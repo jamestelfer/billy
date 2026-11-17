@@ -1,6 +1,10 @@
 # yaml-language-server: $schema=https://goreleaser.com/static/schema.json
 version: 2
 
+# Names the archives and the Nix package. Without it, goreleaser uses the
+# repository name.
+project_name: billy
+
 builds:
   - id: release
     binary: billy
@@ -38,16 +42,14 @@ nix:
     repository:
       owner: jamestelfer
       name: nixpkgs
-      token: "{{ .Env.NIX_GITHUB_TOKEN }}"
-    # skip publishing the recipe on a prerelease, as for the cask.
-    skip_upload: auto
+      token: "{{ .Env.NIX_GITHUB_TOKEN }}" # set by the release workflow
+    # Leave the committer unset, so GitHub signs the commit as the token's App.
+    commit_author:
+      use_github_app_token: true
+    skip_upload: auto # no recipe for prerelease tags
     homepage: "https://github.com/jamestelfer/billy"
     description: "Audiobookshelf skill for Amazon Alexa"
     license: "asl20"
-
-changelog:
-  use: github-native
-  sort: asc
 
 release:
   # The shared pipeline requires the release to stay a draft that goreleaser
@@ -59,5 +61,8 @@ release:
   # (GetReleaseByTag) cannot see draft releases and would create a duplicate;
   # use_existing_draft makes it locate the draft by name and fill it instead.
   use_existing_draft: true
-  mode: keep-existing
+  # Lets a re-run replace assets an earlier run uploaded, instead of failing
+  # with HTTP 422 on the first existing asset.
+  replace_existing_artifacts: true
+  mode: keep-existing # keep the release-please title and notes
   prerelease: auto
