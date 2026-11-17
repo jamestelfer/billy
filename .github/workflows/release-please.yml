@@ -25,6 +25,6 @@ jobs:
       # Keyless: mint the release-please-billy token against the centralised
       # trust policies (identity/scope are derived by convention — nothing passed).
       token-source: octo-sts
-    # No `secrets:` block: the octo-sts path is keyless. (On the `app` path you
-    # would add `secrets: inherit` so the environment-scoped RELEASE_PLEASE_*
-    # secrets resolve inside the reusable workflow's environment-targeting job.)
+    # No `secrets:` block: the octo-sts path is keyless. The `app` path passes
+    # RELEASE_PLEASE_CLIENT_ID and RELEASE_PLEASE_APP_PRIVATE_KEY by name.
+    # `secrets: inherit` passes nothing across owners, so it never applies here.

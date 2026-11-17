@@ -1,0 +1,9 @@
+# zizmor policy: the shared chinmina release kit is consumed at its moving
+# @verified-actions ref by design, so chinmina refs are ref-pinned. Every other
+# action stays pinned to a full commit SHA.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        chinmina/*: ref-pin
+        "*": hash-pin

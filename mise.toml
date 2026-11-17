@@ -1,7 +1,7 @@
 [tools]
 go            = "1.27"
 golangci-lint = "2.14.0"
-goreleaser    = "2.16.0"
+goreleaser    = "2.20.2"
 just          = "1.49.0"
 node          = "24"
 # aube blocks packages under 1000 weekly npm downloads; ask-cli sits at ~626.
